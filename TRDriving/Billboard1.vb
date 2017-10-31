@@ -8,3 +8,5 @@ Public Class Billboard1
         Dim redBrush As New Drawing.SolidBrush(Color.Red)
         e.Graphics.FillRectangle(blackBrush, 0, 0, 200, 400)
         e.Graphics.FillEcclipse(redBrush, 50, 100, 100, 100)
+    End Sub
+ End Class
