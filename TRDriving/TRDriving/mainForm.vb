@@ -15,7 +15,7 @@ Public Class mainForm
 
     Private Sub loadDrivingGame()
 
-        Dim MainGameWindow As New clsGameDrive(0, 0, "game_driving", 10, gameDevices.trackpad, 0, 0, 0, gameScreens.GameDriving, 0, 0)
+        Dim MainGameWindow As New clsGameDrive(0, 0, "game_driving", 180, gameDevices.trackpad, 0, 0, 0, gameScreens.GameDriving, 0, 0)
         MainGameWindow.initialize()
         MainGameWindow.Run(30, 60) '30updates per second, drawing 60frames per second
 

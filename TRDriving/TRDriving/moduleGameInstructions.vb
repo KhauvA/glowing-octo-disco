@@ -6,8 +6,8 @@
 
             Case gameScreens.GameDriving
                 If im = gameDevices.trackpad Then
-                    returnValue = "For this game, you will be using the touchpad. " & vbCrLf & _
-                    "Move your finger along the sensor left and right to rotate the car." & vbCrLf & _
+                    returnValue = "For this game, you will be using the touchpad. " & vbCrLf &
+                    "Move your finger along the sensor left and right to rotate the car." & vbCrLf &
                     "Drive through the colored cones to score points."
                 End If
 
@@ -17,8 +17,8 @@
 
 
 
-        returnValue = returnValue & vbCrLf & vbCrLf & vbCrLf & vbCrLf & vbCrLf & _
-            vbCrLf & vbCrLf & vbCrLf & vbCrLf & vbCrLf & vbCrLf & _
+        returnValue = returnValue & vbCrLf & vbCrLf & vbCrLf & vbCrLf & vbCrLf &
+            vbCrLf & vbCrLf & vbCrLf & vbCrLf & vbCrLf & vbCrLf &
             "Press spacebar to start."
 
         Return returnValue

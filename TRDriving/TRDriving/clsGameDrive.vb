@@ -106,7 +106,7 @@ Public Class clsGameDrive
     ' speed - the variable that stores the current speed of the car, which is varied depending 
     '         on what terrain is being driven over.
     '**************************************************************************************************
-    Private ORIGINALSPEED As Single = 2
+    Private ORIGINALSPEED As Single = 0.5
     Private speed As Single = ORIGINALSPEED
 
     '**************************************************************************************************
@@ -1145,7 +1145,7 @@ Public Class clsGameDrive
             If i Mod 10 = 0 Then
                 j = i / 10
 
-                drawSphere(distractions(j).x - 10, distractions(j).y)
+                drawBillboard(distractions(j).x - 10, distractions(j).y)
             End If
         Next
 
@@ -1234,7 +1234,7 @@ Public Class clsGameDrive
 
 
 
-    Private Sub drawSphere(ByRef x As Single, ByRef y As Single)
+    Private Sub drawBillboard(ByRef x As Single, ByRef y As Single)
         Dim size As Single = 10
 
 

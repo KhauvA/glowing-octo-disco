@@ -31,7 +31,7 @@ Public MustInherit Class clsGame
     Protected currentOption3 As Integer
 
 
-    Protected totalTime As Integer = 20
+    Protected totalTime As Integer = 180
     Protected elapsedTime As Integer = 0
     Protected score As String = 0
     Protected surveyAnswers As String
@@ -79,7 +79,7 @@ Public MustInherit Class clsGame
             base_MyTexture = value
         End Set
     End Property
-   
+
 
 
     Protected Sub loadTextures()
@@ -102,8 +102,8 @@ Public MustInherit Class clsGame
 
                 bitmapdata = Image.LockBits(New Rectangle(0, 0, Image.Width, Image.Height), System.Drawing.Imaging.ImageLockMode.ReadOnly, Drawing.Imaging.PixelFormat.Format24bppRgb)
                 GL.BindTexture(TextureTarget.Texture2D, MyTexture(i))
-                GL.TexImage2D(EnableCap.Texture2D, 0, PixelInternalFormat.Rgb8, _
-                                    Image.Width, Image.Height, 0, 32992, _
+                GL.TexImage2D(EnableCap.Texture2D, 0, PixelInternalFormat.Rgb8,
+                                    Image.Width, Image.Height, 0, 32992,
                                     PixelType.UnsignedByte, bitmapdata.Scan0)
                 GL.TexParameterI(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, 9729)   '// Linear Filtering
                 GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, 9729)   '// Linear Filtering
@@ -448,9 +448,9 @@ Public MustInherit Class clsGame
         prompt = s
     End Sub
 
-    Public Sub New(ByVal num_of_textures As Integer, ByVal input_method As gameDevices, _
-                   ByVal game_screens_type As gameScreens, ByVal duration As Integer, _
-                   ByVal task_id As Integer, ByVal task_name As String, ByVal takePhoto As Boolean, _
+    Public Sub New(ByVal num_of_textures As Integer, ByVal input_method As gameDevices,
+                   ByVal game_screens_type As gameScreens, ByVal duration As Integer,
+                   ByVal task_id As Integer, ByVal task_name As String, ByVal takePhoto As Boolean,
                    ByVal op1 As Integer, ByVal op2 As Integer, ByVal op3 As Integer)
         MyBase.New(1920, 1080)
         Try
