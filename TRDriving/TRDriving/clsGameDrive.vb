@@ -41,6 +41,11 @@ Public Class clsGameDrive
         Dim greenCone As Boolean
     End Structure
 
+    Private Structure Billboard
+        Dim x As Single
+        Dim y As Single
+    End Structure
+
 
     '**************************************************************************************************
     ' TRACKPOINTS - a constant indicating how many track points in the z direction there are.  Each
@@ -49,13 +54,14 @@ Public Class clsGameDrive
     '**************************************************************************************************
     Private Const TRACKPOINTS As Integer = 480
     Private Const CONEPOINTS As Integer = TRACKPOINTS / 5
-
+    Private Const DISTRACTIONPOINTS As Integer = TRACKPOINTS / 10
     '**************************************************************************************************
     ' track(TRACKPOINTS) - a 0-based array, initilized to the TRACKPOINTS constant, that is used
     '                      to actually store all the track tiles.
     '**************************************************************************************************
     Private track(TRACKPOINTS) As TrackTile
     Private cones(CONEPOINTS) As Cone
+    Private distractions(DISTRACTIONPOINTS) As Billboard
 
     '**************************************************************************************************
     ' TRACKWIDTH - a constant indicating the width (x direction, left to right on screen)
@@ -748,13 +754,13 @@ Public Class clsGameDrive
         GL.Rotate(compassRotate, 0, 1, 0)
 
 
-     
+
 
         GL.Translate(0, 5, 0)
 
 
         GL.Enable(EnableCap.Blend)
-        GL.Color3(0.25, 0, 0)
+        GL.Color3(0, 0.25, 0)
         GL.Begin(BeginMode.Quads)
         GL.Vertex3(-0.5, 1, 1.0F)
         GL.Vertex3(0.5, 1, 1.0F)
@@ -765,16 +771,6 @@ Public Class clsGameDrive
         GL.Vertex3(1, 1, -1.0F)
         GL.Vertex3(-1, 1, -1.0F)
         GL.Vertex3(0, 1, -3.0F)
-        GL.End()
-        GL.Begin(BeginMode.LineStrip)
-        GL.Vertex3(-0.5, 1, 1.0F)
-        GL.Vertex3(0.5, 1, 1.0F)
-        GL.Vertex3(0.5, 1, -1.0F)
-        GL.Vertex3(1, 1, -1.0F)
-        GL.Vertex3(0, 1, -3.0F)
-        GL.Vertex3(-1, 1, -1.0F)
-        GL.Vertex3(-0.5, 1, -1.0F)
-        GL.Vertex3(-0.5, 1, 1.0F)
         GL.End()
 
 
@@ -1051,7 +1047,17 @@ Public Class clsGameDrive
     End Sub
 
 
-
+    Private Sub initializeDistractions()
+        Dim i As Integer
+        Dim j As Integer = 0
+        For i = 0 To TRACKPOINTS
+            If i Mod 10 = 0 Then
+                j = i / 10
+                distractions(j).x = track(i).x1
+                distractions(j).y = track(i).y1
+            End If
+        Next i
+    End Sub
 
 
 
@@ -1134,6 +1140,12 @@ Public Class clsGameDrive
                 End If
 
 
+            End If
+
+            If i Mod 10 = 0 Then
+                j = i / 10
+
+                drawSphere(distractions(j).x - 10, distractions(j).y)
             End If
         Next
 
@@ -1222,20 +1234,71 @@ Public Class clsGameDrive
 
 
 
-    Private Sub drawSphere()
+    Private Sub drawSphere(ByRef x As Single, ByRef y As Single)
+        Dim size As Single = 10
 
 
-        GL.PushMatrix()
         GL.PushAttrib(AttribMask.AllAttribBits)
-        GL.Enable(EnableCap.ColorMaterial)
+        GL.PushMatrix()
 
+        GL.Disable(EnableCap.Lighting)
+        GL.Disable(EnableCap.DepthTest)
 
-        GL.Color3(1, 0, 0)
-        GL.Translate(0, 0, -10)
-        OpenTK.Graphics.Glu.Sphere(quadratic, 0.5, 50, 50)
+        GL.Color3(255.0F, 255.0F, 0)
 
-        GL.PopAttrib()
+        GL.Begin(BeginMode.QuadStrip)
+        GL.Vertex3(x + size, 1, y + size)
+        GL.Vertex3(x + -size, 1, y + size)
+        GL.Vertex3(x + size, 2 * size + 1, y + size)
+        GL.Vertex3(x + -size, 2 * size + 1, y + size)
+        GL.Vertex3(x + size, 2 * size + 1, y + -size)
+        GL.Vertex3(x + -size, 2 * size + 1, y + -size)
+        GL.Vertex3(x + size, 1, y + -size)
+        GL.Vertex3(x + -size, 1, y + -size)
+        GL.End()
+
+        GL.Begin(BeginMode.Quads)
+        GL.Vertex3(x + size, 1, y - size)
+        GL.Vertex3(x + size, 1, y + size)
+        GL.Vertex3(x + size, 2 * size + 1, y + size)
+        GL.Vertex3(x + size, 2 * size + 1, y - size)
+
+        GL.Vertex3(x - size, 2 * size + 1, y + size)
+        GL.Vertex3(x - size, 2 * size + 1, y - size)
+        GL.Vertex3(x - size, 1, y - size)
+        GL.Vertex3(x - size, 1, y + size)
+
+        GL.End()
+
+        GL.LineWidth(1)
+        GL.Color3(0, 0, 0)
+        GL.Begin(BeginMode.LineStrip)
+        GL.Vertex3(x + size, 2 * size + 1, y + size)
+        GL.Vertex3(x - size, 2 * size + 1, y + size)
+        GL.Vertex3(x - size, 2 * size + 1, y + size)
+        GL.Vertex3(x + size, 2 * size + 1, y + size)
+        GL.End()
+
+        GL.Begin(BeginMode.LineStrip)
+        GL.Vertex3(x + size, 1, y + size)
+        GL.Vertex3(x - size, 1, y + size)
+        GL.Vertex3(x - size, 1, y + size)
+        GL.Vertex3(x + size, 1, y + size)
+        GL.End()
+
+        GL.Begin(BeginMode.Lines)
+        GL.Vertex3(x + size, 2 * size + 1, y + size)
+        GL.Vertex3(x + size, 1, y + size)
+        GL.Vertex3(x - size, 2 * size + 1, y + size)
+        GL.Vertex3(x - size, 1, y + size)
+        GL.Vertex3(x + size, 2 * size + 1, y - size)
+        GL.Vertex3(x + size, 1, y - size)
+        GL.Vertex3(x - size, 2 * size + 1, y - size)
+        GL.Vertex3(x - size, 1, y - size)
+        GL.End()
+
         GL.PopMatrix()
+        GL.PopAttrib()
 
 
     End Sub
@@ -1720,6 +1783,7 @@ Public Class clsGameDrive
 
         initializeTrack()
         initializeCones()
+        initializeDistractions()
 
         compassRotate = 0
         compassIncrementing = 2
@@ -1749,12 +1813,12 @@ Public Class clsGameDrive
     End Sub
 
 
-    Public Sub New(ByVal taskid1 As Integer, ByVal taskid2 As Integer, ByVal taskname As String, _
-                           ByVal duration As Integer, ByVal input_method As gameDevices, _
-                           ByVal opt1 As Integer, ByVal opt2 As Integer, ByVal opt3 As Integer, _
+    Public Sub New(ByVal taskid1 As Integer, ByVal taskid2 As Integer, ByVal taskname As String,
+                           ByVal duration As Integer, ByVal input_method As gameDevices,
+                           ByVal opt1 As Integer, ByVal opt2 As Integer, ByVal opt3 As Integer,
                            ByVal game_screen_type As gameScreens, ByVal biman As Boolean, ByVal photo As Boolean)
 
-        MyBase.new(15, input_method, game_screen_type, duration, taskid1, taskname, photo, opt1, opt2, opt3)
+        MyBase.New(15, input_method, game_screen_type, duration, taskid1, taskname, photo, opt1, opt2, opt3)
 
         loadInputTexture(input_method)
         textureNames(2) = startUpPath & "\texture\drive\grass.jpg"

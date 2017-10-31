@@ -27,3 +27,7 @@ C:\Users\marth\Desktop\INF117\TRDriving\TRDriving\obj\x86\Debug\TRDriving.vbproj
 C:\Users\marth\Desktop\INF117\TRDriving\TRDriving\obj\x86\Debug\TRDriving.exe
 C:\Users\marth\Desktop\INF117\TRDriving\TRDriving\obj\x86\Debug\TRDriving.xml
 C:\Users\marth\Desktop\INF117\TRDriving\TRDriving\obj\x86\Debug\TRDriving.pdb
+C:\Users\Medusa\Source\Repos\stroke_rehab\TRDriving\TRDriving\bin\Debug\TRDriving.exe.config
+C:\Users\Medusa\Source\Repos\stroke_rehab\TRDriving\TRDriving\obj\x86\Debug\TRDriving.exe
+C:\Users\Medusa\Source\Repos\stroke_rehab\TRDriving\TRDriving\obj\x86\Debug\TRDriving.xml
+C:\Users\Medusa\Source\Repos\stroke_rehab\TRDriving\TRDriving\obj\x86\Debug\TRDriving.pdb
