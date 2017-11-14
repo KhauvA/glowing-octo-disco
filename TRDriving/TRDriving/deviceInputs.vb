@@ -1,5 +1,5 @@
 ﻿Public Class deviceInputs
-
+   
     Public Property trackpad_X As Integer = 0
     Public Property trackpad_Y As Integer = 0
 
@@ -27,7 +27,7 @@
 
 
         Select Case inputMethod
-
+            
             Case gameDevices.trackpad
                 Dim tempX As Single = Cursor.Position.X / SCREENWIDTH
                 Dim tempY As Single = Cursor.Position.Y / SCREENHEIGHT
@@ -65,7 +65,7 @@
                 End If
 
 
-
+            
         End Select
     End Sub
 End Class

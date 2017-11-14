@@ -79,7 +79,7 @@ Public MustInherit Class clsGame
             base_MyTexture = value
         End Set
     End Property
-
+   
 
 
     Protected Sub loadTextures()
@@ -102,8 +102,8 @@ Public MustInherit Class clsGame
 
                 bitmapdata = Image.LockBits(New Rectangle(0, 0, Image.Width, Image.Height), System.Drawing.Imaging.ImageLockMode.ReadOnly, Drawing.Imaging.PixelFormat.Format24bppRgb)
                 GL.BindTexture(TextureTarget.Texture2D, MyTexture(i))
-                GL.TexImage2D(EnableCap.Texture2D, 0, PixelInternalFormat.Rgb8,
-                                    Image.Width, Image.Height, 0, 32992,
+                GL.TexImage2D(EnableCap.Texture2D, 0, PixelInternalFormat.Rgb8, _
+                                    Image.Width, Image.Height, 0, 32992, _
                                     PixelType.UnsignedByte, bitmapdata.Scan0)
                 GL.TexParameterI(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, 9729)   '// Linear Filtering
                 GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, 9729)   '// Linear Filtering
@@ -448,9 +448,9 @@ Public MustInherit Class clsGame
         prompt = s
     End Sub
 
-    Public Sub New(ByVal num_of_textures As Integer, ByVal input_method As gameDevices,
-                   ByVal game_screens_type As gameScreens, ByVal duration As Integer,
-                   ByVal task_id As Integer, ByVal task_name As String, ByVal takePhoto As Boolean,
+    Public Sub New(ByVal num_of_textures As Integer, ByVal input_method As gameDevices, _
+                   ByVal game_screens_type As gameScreens, ByVal duration As Integer, _
+                   ByVal task_id As Integer, ByVal task_name As String, ByVal takePhoto As Boolean, _
                    ByVal op1 As Integer, ByVal op2 As Integer, ByVal op3 As Integer)
         MyBase.New(1920, 1080)
         Try
@@ -519,9 +519,10 @@ Public MustInherit Class clsGame
     Private Sub MyGameWindow_RenderFrame(ByVal sender As Object, ByVal e As OpenTK.FrameEventArgs) Handles Me.RenderFrame
 
         renderLoop()
-        OpenTK.Graphics.GraphicsContext.CurrentContext.VSync = True
-        SwapBuffers()
-
+        If OpenTK.Graphics.GraphicsContext.CurrentContext IsNot Nothing Then
+            OpenTK.Graphics.GraphicsContext.CurrentContext.VSync = True
+            SwapBuffers()
+        End If
     End Sub
 
 

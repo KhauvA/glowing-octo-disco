@@ -7,7 +7,7 @@ Public Module Module1
     Public Const SCREENWIDTH As Integer = 1920
     Public Const SCREENHEIGHT As Integer = 1080
 
-    Public quadratic As IntPtr
+    Public quadratic As IntPtr = IntPtr.Zero
 
     Public GlobalCurrentX As Single = 0
     Public GlobalCurrentY As Single = 0
@@ -107,7 +107,6 @@ Public Module Module1
         Else
             soundCounter = 0
         End If
-
     End Sub
 
     Public Sub drawTextAt(ByRef text As String, ByVal a As Single, ByVal r As Single, ByVal g As Single, ByVal b As Single, ByVal x As Single, ByVal y As Single, ByVal size As fontSizes, ByVal ft As fontType, Optional ByVal scale As Single = 1)

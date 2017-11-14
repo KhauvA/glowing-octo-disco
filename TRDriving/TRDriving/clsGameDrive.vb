@@ -10,6 +10,9 @@ Public Class clsGameDrive
     Private theta As Single
     Private currentTrackTileID As Single
 
+    Private map As Long = 0
+
+    Private Property maxTrackTileID As Integer
 
     Private Structure TrackTile
         'lower left corner
@@ -30,21 +33,10 @@ Public Class clsGameDrive
 
     End Structure
 
-
-    Private Structure Cone
-        Dim x1 As Single
-        Dim y1 As Single
-        Dim x2 As Single
-        Dim y2 As Single
-        Dim scored As Boolean
-        Dim randomD As Single
-        Dim greenCone As Boolean
-    End Structure
-
-    Private Structure Billboard
-        Dim x As Single
-        Dim y As Single
-    End Structure
+    Private Class GameObject
+        Public x As Single
+        Public y As Single
+    End Class
 
 
     '**************************************************************************************************
@@ -53,21 +45,26 @@ Public Class clsGameDrive
     '               the width is represented by the variable TRACKWIDTH.
     '**************************************************************************************************
     Private Const TRACKPOINTS As Integer = 480
-    Private Const CONEPOINTS As Integer = TRACKPOINTS / 5
-    Private Const DISTRACTIONPOINTS As Integer = TRACKPOINTS / 10
+
+    Private Const OBJECTOFFSET As Integer = 5
+    Private Const OBJECTSTART As Integer = 15
+    Private Const OBJECTINTERVAL As Integer = 10
+
+    'Distance from the road
+    Private Const OBJECTDISTANCE As Integer = 50
     '**************************************************************************************************
     ' track(TRACKPOINTS) - a 0-based array, initilized to the TRACKPOINTS constant, that is used
     '                      to actually store all the track tiles.
     '**************************************************************************************************
     Private track(TRACKPOINTS) As TrackTile
-    Private cones(CONEPOINTS) As Cone
-    Private distractions(DISTRACTIONPOINTS) As Billboard
+    Private zone(TRACKPOINTS) As TrackTile
+    Private objects() As GameObject
 
     '**************************************************************************************************
     ' TRACKWIDTH - a constant indicating the width (x direction, left to right on screen)
     '              of each track tile. 
     '**************************************************************************************************
-    Private Const TRACKWIDTH As Single = 100
+    Private Const TRACKWIDTH As Single = 200
 
     '**************************************************************************************************
     ' TRACKDEPTH - a constant indicating the depth (z direction, far to near on screen)
@@ -98,15 +95,12 @@ Public Class clsGameDrive
     '                  the y axis.
     '**************************************************************************************************
     Private cameraRotation As Single = 0
-    'Private wheelRotation As Single = 0
-    'Public currentMousePosition As Single = 0
-
 
     '**************************************************************************************************
     ' speed - the variable that stores the current speed of the car, which is varied depending 
     '         on what terrain is being driven over.
     '**************************************************************************************************
-    Private ORIGINALSPEED As Single = 0.5
+    Private ORIGINALSPEED As Single = 2
     Private speed As Single = ORIGINALSPEED
 
     '**************************************************************************************************
@@ -131,17 +125,21 @@ Public Class clsGameDrive
     '**************************************************************************************************
     Private numWidth As Single = 20
 
-
-    Private minCone As Single = 30
-    Private maxCone As Single = 40
-
-
-
     Private compassRotate As Single = 0
     Private compassIncrementing As Single = 2
-    Private coneColor As Single = 0
-    Private increasing As Boolean = False
+
     Private skyRotate As Single = 0
+
+    Private nextDistraction As DateTime
+    Private endDistraction As DateTime
+    Private minDistractionInterval As Integer = 3
+    Private maxDistractionInterval As Integer = 6
+
+    Private distractionHangTimes As Integer() = {250, 500, 750, 1000, 1500, 2000, 3000}
+
+    Private currentDistraction As Integer = 1
+    Private isInZone As Boolean = False
+    Private isOnTrack As Boolean = False
 
     '**************************************************************************************************
     ' 
@@ -162,8 +160,6 @@ Public Class clsGameDrive
         End If
     End Sub
 
-
-
     Private Sub drawTerrain()
         Dim i As Integer
         Dim j As Integer
@@ -171,7 +167,13 @@ Public Class clsGameDrive
         GL.PushAttrib(AttribMask.AllAttribBits)
 
         GL.Enable(EnableCap.Texture2D)
-        GL.BindTexture(TextureTarget.Texture2D, MyTexture(2))
+
+        Select Case map
+            Case 0
+                GL.BindTexture(TextureTarget.Texture2D, MyTexture(2))
+            Case 1
+                GL.BindTexture(TextureTarget.Texture2D, MyTexture(25))
+        End Select
 
         GL.Begin(BeginMode.Quads)
         GL.Color3(255.0, 255.0, 255.0)
@@ -200,9 +202,6 @@ Public Class clsGameDrive
         GL.PopAttrib()
 
     End Sub
-
-
-
 
     Private Sub leftWidget(ByVal start As Integer, ByVal length As Integer)
 
@@ -352,8 +351,6 @@ Public Class clsGameDrive
             track(start + i).y4 = track(start + i - 1).y4 - TRACKDEPTH
         Next
     End Sub
-
-
 
     Private Sub rightWidget(ByVal start As Integer, ByVal length As Integer)
 
@@ -510,7 +507,6 @@ Public Class clsGameDrive
 
     End Sub
 
-
     Private Sub rightZig(ByVal start As Integer, ByVal length As Integer, ByVal increment As Single)
 
         Dim i As Integer
@@ -592,7 +588,6 @@ Public Class clsGameDrive
 
     End Sub
 
-
     Private Sub straight(ByVal start As Integer, ByVal length As Integer)
 
         Dim i As Integer
@@ -615,8 +610,6 @@ Public Class clsGameDrive
 
     End Sub
     Private Sub initializeTrack()
-
-
         'initial block
         track(0).x1 = -(TRACKWIDTH / 2)
         track(0).y1 = 0
@@ -677,12 +670,26 @@ Public Class clsGameDrive
         straight(456, 5)             '216+5 = 221
         leftWidget(461, 20)         '221 + 20 = 241
 
+        For i As Integer = 0 To TRACKPOINTS
+            Dim v = New PointF(track(i).x2 - track(i).x1, track(i).y2 - track(i).y1)
+            Dim m = Math.Sqrt(Math.Pow(v.X, 2) + Math.Pow(v.Y, 2))
+            Dim n = New PointF(v.X / m, v.Y / m)
 
+            zone(i).x1 = track(i).x1 + n.X * m / 2
+            zone(i).y1 = track(i).y1 + n.Y * m / 2
+            zone(i).x2 = track(i).x2
+            zone(i).y2 = track(i).y2
+
+            v = New PointF(track(i).x4 - track(i).x3, track(i).y4 - track(i).y3)
+            m = Math.Sqrt(Math.Pow(v.X, 2) + Math.Pow(v.Y, 2))
+            n = New PointF(v.X / m, v.Y / m)
+
+            zone(i).x3 = track(i).x3
+            zone(i).y3 = track(i).y3
+            zone(i).x4 = track(i).x4 - n.X * m / 2
+            zone(i).y4 = track(i).y4 - n.Y * m / 2
+        Next
     End Sub
-
-
-
-
 
     Public Sub MoveLeftRight(ByVal angle As Single)
         cameraRotation += angle ' * -90
@@ -690,38 +697,23 @@ Public Class clsGameDrive
         If cameraRotation > 360 Then cameraRotation = cameraRotation - 360
     End Sub
 
-
     Private Sub MoveForward()
-
         Dim x As Single = speed * Math.Sin(-cameraRotation * DtoR)
         Dim y As Single = speed * Math.Cos(-cameraRotation * DtoR)
 
         cameraPositionZ += y
         cameraPositionX += x
-
-
     End Sub
-
-
-
-
-
-
 
     Private Sub drawCompass()
         Dim X5, Y5 As Single
         Dim X6, Y6 As Single
         Dim H, W As Single
 
-
-
-
         Dim id As Integer = currentTrackTileID
-
 
         If id < 0 Then id = 0
         If id > TRACKPOINTS - 2 Then id = TRACKPOINTS - 2
-
 
         X5 = (track(id + 1).x1 + track(id + 1).x2 + track(id + 1).x3 + track(id + 1).x4) / 4
         Y5 = (track(id + 1).y1 + track(id + 1).y2 + track(id + 1).y3 + track(id + 1).y4) / 4
@@ -753,11 +745,7 @@ Public Class clsGameDrive
         GL.Translate(0, 0, -10)
         GL.Rotate(compassRotate, 0, 1, 0)
 
-
-
-
         GL.Translate(0, 5, 0)
-
 
         GL.Enable(EnableCap.Blend)
         GL.Color3(0, 0.25, 0)
@@ -777,15 +765,9 @@ Public Class clsGameDrive
         GL.Disable(EnableCap.Blend)
         GL.PopMatrix()
         GL.PopAttrib()
-
     End Sub
 
-
-
-
-
     Private Sub drawNumbers(ByVal num As Char, ByVal scoreWidth As Single)
-
         Dim x1, x2, y1, y2 As Single
 
         Select Case num
@@ -848,20 +830,13 @@ Public Class clsGameDrive
                 Exit Sub
         End Select
 
-
-
         GL.PushMatrix()
-
-
 
         GL.Enable(EnableCap.Texture2D)
         GL.Disable(EnableCap.Blend)
         GL.Enable(EnableCap.Blend)
         GL.Disable(EnableCap.DepthTest)
         GL.BlendFunc(BlendingFactorSrc.DstColor, BlendingFactorDest.Zero)
-
-
-
 
         GL.BindTexture(TextureTarget.Texture2D, MyTexture(18))
         GL.Begin(BeginMode.Quads)
@@ -876,9 +851,7 @@ Public Class clsGameDrive
         GL.Vertex3(-scoreWidth, -scoreWidth, -100)
         GL.End()
 
-
         GL.BlendFunc(BlendingFactorSrc.One, BlendingFactorDest.One)
-
 
         GL.BindTexture(TextureTarget.Texture2D, MyTexture(17))
         GL.Begin(BeginMode.Quads)
@@ -893,25 +866,18 @@ Public Class clsGameDrive
         GL.Vertex3(-scoreWidth, -scoreWidth, -100)
         GL.End()
 
-
         GL.Enable(EnableCap.DepthTest)
         GL.Disable(EnableCap.Blend)
         GL.Disable(EnableCap.Texture2D)
 
-
         GL.PopMatrix()
     End Sub
 
-
-
     Private Sub drawCountDown()
-
         GL.PushAttrib(AttribMask.AllAttribBits)
 
         GL.PushMatrix()
         GL.LoadIdentity()
-
-
 
         GL.Enable(EnableCap.Texture2D)
         GL.Disable(EnableCap.Blend)
@@ -920,8 +886,6 @@ Public Class clsGameDrive
         GL.BlendFunc(BlendingFactorSrc.DstColor, BlendingFactorDest.Zero)
 
         If numWidth > 0 Then numWidth = numWidth - 0.5
-
-
 
         GL.BindTexture(TextureTarget.Texture2D, MyTexture(countDownNumber))
         GL.Begin(BeginMode.Quads)
@@ -936,9 +900,7 @@ Public Class clsGameDrive
         GL.Vertex3(-numWidth, -numWidth, -100)
         GL.End()
 
-
         GL.BlendFunc(BlendingFactorSrc.One, BlendingFactorDest.One)
-
 
         GL.BindTexture(TextureTarget.Texture2D, MyTexture(countDownNumber - 1))
         GL.Begin(BeginMode.Quads)
@@ -953,21 +915,16 @@ Public Class clsGameDrive
         GL.Vertex3(-numWidth, -numWidth, -100)
         GL.End()
 
-
         GL.Enable(EnableCap.DepthTest)
         GL.Disable(EnableCap.Blend)
         GL.Disable(EnableCap.Texture2D)
-
 
         GL.PopMatrix()
         GL.PopAttrib()
     End Sub
 
-
-
     Private Sub drawDash()
-
-        Static cameraShakeStage As Integer = 0
+        Static cameraShakeStage As Single = 0
 
         Dim dashWidth As Single = 25
         Dim dashHeight As Single = dashWidth / (1366 / 768)
@@ -976,31 +933,12 @@ Public Class clsGameDrive
         GL.PushMatrix()
         GL.LoadIdentity()
 
-        If isOnTrack() = False Then
-            Select Case cameraShakeStage
-                Case 0
-                    GL.Translate(0, 0, 0)
-                    cameraShakeStage = 1
-                Case 1
-                    GL.Translate(0, -0.25, 0)
-                    cameraShakeStage = 2
-                Case 2
-                    GL.Translate(0, -0.5, 0)
-                    cameraShakeStage = 3
-                Case 3
-                    GL.Translate(0, -0.75, 0)
-                    cameraShakeStage = 4
-                Case 4
-                    GL.Translate(0, -0.5, 0)
-                    cameraShakeStage = 5
-                Case 5
-                    GL.Translate(0, -0.25, 0)
-                    cameraShakeStage = 0
-            End Select
+        If isOnTrack = False Then
+            GL.Translate(0, Math.Sin(cameraShakeStage) * 0.25, 0)
+            cameraShakeStage += 0.6F
         Else
             cameraShakeStage = 0
         End If
-
 
         GL.Enable(EnableCap.Texture2D)
         GL.Disable(EnableCap.Blend)
@@ -1023,7 +961,6 @@ Public Class clsGameDrive
 
         GL.BlendFunc(BlendingFactorSrc.One, BlendingFactorDest.One)
 
-
         GL.BindTexture(TextureTarget.Texture2D, MyTexture(5))
         GL.Begin(BeginMode.Quads)
         GL.Color3(255.0, 255.0, 255.0)
@@ -1037,6 +974,7 @@ Public Class clsGameDrive
         GL.Vertex3(-dashWidth + 8, -dashHeight - 2, -10)
         GL.End()
 
+        drawButton(currentDistraction)
 
         GL.Enable(EnableCap.DepthTest)
         GL.Disable(EnableCap.Blend)
@@ -1046,69 +984,32 @@ Public Class clsGameDrive
         GL.PopAttrib()
     End Sub
 
-
-    Private Sub initializeDistractions()
-        Dim i As Integer
-        Dim j As Integer = 0
-        For i = 0 To TRACKPOINTS
-            If i Mod 10 = 0 Then
-                j = i / 10
-                distractions(j).x = track(i).x1
-                distractions(j).y = track(i).y1
-            End If
-        Next i
-    End Sub
-
-
-
-    Private Sub initializeCones()
-
-        Dim i As Integer
-        Dim j As Integer = 0
+    Private Sub initializeObjects()
+        Dim lst = New List(Of GameObject)
 
         For i = 0 To TRACKPOINTS
-            If i Mod 5 = 0 Then
-                j = i / 5
-                cones(j).randomD = Rand(minCone, maxCone)
+            If i >= OBJECTSTART AndAlso (i + OBJECTOFFSET) Mod OBJECTINTERVAL = 0 Then
+                Dim v = New PointF(track(i).x1 - track(i).x2, track(i).y1 - track(i).y2)
+                Dim m = Math.Sqrt(Math.Pow(v.X, 2) + Math.Pow(v.Y, 2))
+                Dim n = New PointF(v.X / m, v.Y / m)
 
-                cones(j).x1 = track(i).x1
-                cones(j).y1 = track(i).y1
+                Dim o = New GameObject()
 
-                cones(j).x2 = track(i).x2
-                cones(j).y2 = track(i).y2
-
-                If cones(j).y1 = cones(j).y2 Then                   'horizontal, left right axis
-                    cones(j).x1 = track(i).x1 + cones(j).randomD
-                    cones(j).y1 = track(i).y1
-                    cones(j).x2 = track(i).x2 - cones(j).randomD
-                    cones(j).y2 = track(i).y2
-                Else                                               'vertical, up down axis
-                    If cones(j).y1 > cones(j).y2 Then
-                        cones(j).x1 = track(i).x1
-                        cones(j).y1 = track(i).y1 - cones(j).randomD
-                        cones(j).x2 = track(i).x2
-                        cones(j).y2 = track(i).y2 + cones(j).randomD
-                    Else
-                        cones(j).x1 = track(i).x1
-                        cones(j).y1 = track(i).y1 + cones(j).randomD
-                        cones(j).x2 = track(i).x2
-                        cones(j).y2 = track(i).y2 - cones(j).randomD
-                    End If
+                If Rand(0, 10) > 5 Then
+                    o.x = OBJECTDISTANCE * n.X + track(i).x1
+                    o.y = OBJECTDISTANCE * n.Y + track(i).y1
+                Else
+                    o.x = -OBJECTDISTANCE * n.X + track(i).x2
+                    o.y = -OBJECTDISTANCE * n.Y + track(i).y2
                 End If
 
-
-                cones(j).greenCone = True
-                cones(j).scored = False
-
+                lst.Add(o)
             End If
-        Next
+        Next i
+        objects = lst.ToArray()
     End Sub
 
-
-
     Private Sub drawRaceTrack()
-
-
         GL.PushAttrib(AttribMask.AllAttribBits)
         GL.PushMatrix()
         GL.Disable(EnableCap.DepthTest)
@@ -1130,189 +1031,134 @@ Public Class clsGameDrive
             GL.TexCoord2(0, 1)
             GL.Vertex3(track(i).x4, 0, track(i).y4)
             GL.End()
-
-            If i Mod 5 = 0 Then
-                j = i / 5
-
-                If (-cameraPositionZ > cones(j).y1 - 500) And (-cameraPositionZ < cones(j).y1 + 500) Then
-                    drawCones(cones(j).x1, cones(j).y1, coneColor, cones(j).greenCone)
-                    drawCones(cones(j).x2, cones(j).y2, coneColor, cones(j).greenCone)
-                End If
-
-
-            End If
-
-            If i Mod 10 = 0 Then
-                j = i / 10
-
-                drawBillboard(distractions(j).x - 10, distractions(j).y)
-            End If
         Next
 
-        If increasing Then
-            coneColor += 1
-            If coneColor >= 200 Then
-                coneColor = 200
-                increasing = False
-            End If
-        Else
-            coneColor -= 1
-            If coneColor <= 0 Then
-                coneColor = 0
-                increasing = True
-            End If
-        End If
-
-
+        For Each obj In objects
+            drawObject(obj)
+        Next
 
         GL.PopMatrix()
         GL.PopAttrib()
     End Sub
 
+    Private Sub drawButton(color As Long)
+        Dim x As Single = -0.25F
+        Dim y As Single = -3.75F
+        Dim w As Integer = 1
 
-    Private Sub drawCones(ByRef x As Single, ByRef y As Single, ByRef coneColor As Single, ByRef yellowCone As Boolean)
-        GL.PushAttrib(AttribMask.AllAttribBits)
-        GL.PushMatrix()
-
-        GL.Disable(EnableCap.Lighting)
-        GL.Disable(EnableCap.DepthTest)
-
-        If yellowCone Then
-            GL.Color3(255.0F, 255.0F, 0)
-        Else
-            GL.Color3(255.0F, 0, 0)
-        End If
-
-
+        GL.BlendFunc(BlendingFactorSrc.DstColor, BlendingFactorDest.Zero)
+        GL.Color3(255.0F, 255.0F, 255.0F)
+        GL.BindTexture(TextureTarget.Texture2D, MyTexture(24))
         GL.Begin(BeginMode.Quads)
-        GL.Vertex3(x - 2.5, 1, y - 2.5)
-        GL.Vertex3(x + 2.5, 1, y - 2.5)
-        GL.Vertex3(x + 2.5, 1, y + 2.5)
-        GL.Vertex3(x - 2.5, 1, y + 2.5)
+        GL.TexCoord2(0, 0)
+        GL.Vertex3(-w + x, w + y, -10)
+        GL.TexCoord2(1, 0)
+        GL.Vertex3(w + x, w + y, -10)
+        GL.TexCoord2(1, 1)
+        GL.Vertex3(w + x, -w + y, -10)
+        GL.TexCoord2(0, 1)
+        GL.Vertex3(-w + x, -w + y, -10)
         GL.End()
 
-        GL.Begin(BeginMode.Triangles)
-        GL.Vertex3(x - 2.5, 1, y - 2.5)
-        GL.Vertex3(x + 2.5, 1, y - 2.5)
-        GL.Vertex3(x, 15, y)
-        GL.Vertex3(x + 2.5, 1, y - 2.5)
-        GL.Vertex3(x + 2.5, 1, y + 2.5)
-        GL.Vertex3(x, 15, y)
-        GL.Vertex3(x + 2.5, 1, y + 2.5)
-        GL.Vertex3(x - 2.5, 1, y + 2.5)
-        GL.Vertex3(x, 15, y)
-        GL.Vertex3(x - 2.5, 1, y + 2.5)
-        GL.Vertex3(x - 2.5, 1, y - 2.5)
-        GL.Vertex3(x, 15, y)
-        GL.End()
-
-
-        GL.LineWidth(0.2)
-        GL.Begin(BeginMode.LineStrip)
-        GL.Color3(0, 0, 0)
-        GL.Vertex3(x - 2.5, 1, y - 2.5)
-        GL.Vertex3(x + 2.5, 1, y - 2.5)
-        GL.Vertex3(x + 2.5, 1, y + 2.5)
-        GL.Vertex3(x - 2.5, 1, y + 2.5)
-        GL.End()
-
-        GL.Begin(BeginMode.Lines)
-        GL.Vertex3(x - 2.5, 1, y - 2.5)
-        GL.Vertex3(x, 15, y)
-        GL.Vertex3(x + 2.5, 1, y - 2.5)
-        GL.Vertex3(x, 15, y)
-        GL.Vertex3(x + 2.5, 1, y + 2.5)
-        GL.Vertex3(x, 15, y)
-        GL.Vertex3(x - 2.5, 1, y + 2.5)
-        GL.Vertex3(x, 15, y)
-        GL.End()
-
-        GL.PopMatrix()
-        GL.PopAttrib()
-
-    End Sub
-
-
-
-    Private Sub drawBillboard(ByRef x As Single, ByRef y As Single)
-        Dim size As Single = 10
-
-
-        GL.PushAttrib(AttribMask.AllAttribBits)
-        GL.PushMatrix()
-
-        GL.Disable(EnableCap.Lighting)
-        GL.Disable(EnableCap.DepthTest)
-
-        GL.Color3(255.0F, 255.0F, 0)
-
-        GL.Begin(BeginMode.QuadStrip)
-        GL.Vertex3(x + size, 1, y + size)
-        GL.Vertex3(x + -size, 1, y + size)
-        GL.Vertex3(x + size, 2 * size + 1, y + size)
-        GL.Vertex3(x + -size, 2 * size + 1, y + size)
-        GL.Vertex3(x + size, 2 * size + 1, y + -size)
-        GL.Vertex3(x + -size, 2 * size + 1, y + -size)
-        GL.Vertex3(x + size, 1, y + -size)
-        GL.Vertex3(x + -size, 1, y + -size)
-        GL.End()
-
+        GL.BlendFunc(BlendingFactorSrc.One, BlendingFactorDest.One)
+        GL.Color3(255.0F, 255.0F, 255.0F)
+        GL.BindTexture(TextureTarget.Texture2D, MyTexture(24 - color))
         GL.Begin(BeginMode.Quads)
-        GL.Vertex3(x + size, 1, y - size)
-        GL.Vertex3(x + size, 1, y + size)
-        GL.Vertex3(x + size, 2 * size + 1, y + size)
-        GL.Vertex3(x + size, 2 * size + 1, y - size)
-
-        GL.Vertex3(x - size, 2 * size + 1, y + size)
-        GL.Vertex3(x - size, 2 * size + 1, y - size)
-        GL.Vertex3(x - size, 1, y - size)
-        GL.Vertex3(x - size, 1, y + size)
-
+        GL.TexCoord2(0, 0)
+        GL.Vertex3(-w + x, w + y, -10)
+        GL.TexCoord2(1, 0)
+        GL.Vertex3(w + x, w + y, -10)
+        GL.TexCoord2(1, 1)
+        GL.Vertex3(w + x, -w + y, -10)
+        GL.TexCoord2(0, 1)
+        GL.Vertex3(-w + x, -w + y, -10)
         GL.End()
-
-        GL.LineWidth(1)
-        GL.Color3(0, 0, 0)
-        GL.Begin(BeginMode.LineStrip)
-        GL.Vertex3(x + size, 2 * size + 1, y + size)
-        GL.Vertex3(x - size, 2 * size + 1, y + size)
-        GL.Vertex3(x - size, 2 * size + 1, y + size)
-        GL.Vertex3(x + size, 2 * size + 1, y + size)
-        GL.End()
-
-        GL.Begin(BeginMode.LineStrip)
-        GL.Vertex3(x + size, 1, y + size)
-        GL.Vertex3(x - size, 1, y + size)
-        GL.Vertex3(x - size, 1, y + size)
-        GL.Vertex3(x + size, 1, y + size)
-        GL.End()
-
-        GL.Begin(BeginMode.Lines)
-        GL.Vertex3(x + size, 2 * size + 1, y + size)
-        GL.Vertex3(x + size, 1, y + size)
-        GL.Vertex3(x - size, 2 * size + 1, y + size)
-        GL.Vertex3(x - size, 1, y + size)
-        GL.Vertex3(x + size, 2 * size + 1, y - size)
-        GL.Vertex3(x + size, 1, y - size)
-        GL.Vertex3(x - size, 2 * size + 1, y - size)
-        GL.Vertex3(x - size, 1, y - size)
-        GL.End()
-
-        GL.PopMatrix()
-        GL.PopAttrib()
-
-
     End Sub
 
+    Private Sub drawObject(obj As GameObject)
+        If obj IsNot Nothing Then
+            Dim x As Single = obj.x
+            Dim y As Single = obj.y
+            Dim size As Single = 50
 
+            GL.PushAttrib(AttribMask.AllAttribBits)
+            GL.PushMatrix()
 
+            GL.Translate(x, 0, y)
+            Dim v = New PointF(x - cameraPositionX, y - cameraPositionZ)
+            Dim m = Math.Sqrt(Math.Pow(v.X, 2) + Math.Pow(v.Y, 2))
+            Dim n = New PointF(v.Y / m, v.X / m)
 
-    Private Function isOnTrack() As Boolean
+            GL.Enable(EnableCap.Texture2D)
+            GL.Disable(EnableCap.Blend)
+            GL.Enable(EnableCap.Blend)
+            GL.Disable(EnableCap.DepthTest)
+            GL.BlendFunc(BlendingFactorSrc.DstColor, BlendingFactorDest.Zero)
 
+            GL.Color3(255.0F, 255.0F, 255.0F)
+            GL.BindTexture(TextureTarget.Texture2D, MyTexture(19))
+            GL.Begin(BeginMode.Quads)
+            GL.TexCoord2(0, 1)
+            GL.Vertex3(size * n.X, 0, size * n.Y)
+            GL.TexCoord2(1, 1)
+            GL.Vertex3(-size * n.X, 0, -size * n.Y)
+            GL.TexCoord2(1, 0)
+            GL.Vertex3(-size * n.X, 2 * size, -size * n.Y)
+            GL.TexCoord2(0, 0)
+            GL.Vertex3(size * n.X, 2 * size, size * n.Y)
+            GL.End()
+
+            GL.BlendFunc(BlendingFactorSrc.One, BlendingFactorDest.One)
+
+            GL.Color3(255.0F, 255.0F, 255.0F)
+            GL.BindTexture(TextureTarget.Texture2D, MyTexture(19 - 1))
+            GL.Begin(BeginMode.Quads)
+            GL.TexCoord2(0, 1)
+            GL.Vertex3(size * n.X, 0, size * n.Y)
+            GL.TexCoord2(1, 1)
+            GL.Vertex3(-size * n.X, 0, -size * n.Y)
+            GL.TexCoord2(1, 0)
+            GL.Vertex3(-size * n.X, 2 * size, -size * n.Y)
+            GL.TexCoord2(0, 0)
+            GL.Vertex3(size * n.X, 2 * size, size * n.Y)
+            GL.End()
+
+            GL.Enable(EnableCap.DepthTest)
+            GL.Disable(EnableCap.Blend)
+            GL.Disable(EnableCap.Texture2D)
+
+            GL.PopMatrix()
+            GL.PopAttrib()
+        End If
+    End Sub
+
+    Private Function calcSide(x As Single, y As Single, y0 As Single, y1 As Single, x0 As Single, x1 As Single) As Single
+        Return (y - y0) * (x1 - x0) - (x - x0) * (y1 - y0)
+    End Function
+
+    Private Function isPointInQuad(x As Single, y As Single, X_1 As Single, X_2 As Single, X_3 As Single, X_4 As Single, Z_1 As Single, Z_2 As Single, Z_3 As Single, Z_4 As Single) As Boolean
+        'calculate which side of the line 1 the camera is on
+        Dim side1 As Single = calcSide(x, y, Z_1, Z_2, X_1, X_2)
+
+        'calculate which side of the line 2 the camera is on
+        Dim side2 As Single = calcSide(x, y, Z_2, Z_3, X_2, X_3)
+
+        'calculate which side of the line 3 the camera is on
+        Dim side3 As Single = calcSide(x, y, Z_3, Z_4, X_3, X_4)
+
+        'calculate which side of the line 4 the camera is on
+        Dim side4 As Single = calcSide(x, y, Z_4, Z_1, X_4, X_1)
+
+        'if all sides are of the same magnitude, the the point is on the interior of the polygon
+        If (side1 <= 0 AndAlso side2 <= 0 AndAlso side3 <= 0 AndAlso side4 <= 0) OrElse (side1 >= 0 AndAlso side2 >= 0 AndAlso side3 >= 0 AndAlso side4 >= 0) Then
+            Return True
+        End If
+        Return False
+    End Function
+
+    Private Function checkPosition() As Boolean
         'find where on the z track is the camera
         Dim i As Integer
-        Dim X_1, X_2, X_3, X_4, Z_1, Z_2, Z_3, Z_4 As Single
-        Dim x, y, y0, y1, x0, x1 As Single
-
 
         Dim iStart As Integer
         If currentTrackTileID < 0 Then
@@ -1323,29 +1169,10 @@ Public Class clsGameDrive
             iStart = Math.Round(currentTrackTileID)
         End If
 
+        isInZone = False
+        isOnTrack = False
 
         For i = 0 To TRACKPOINTS
-
-
-
-
-            'If -cameraPositionZ >= track(i + 1).Y And -cameraPositionZ <= track(i).Y Then
-            X_1 = track(i).x1
-            Z_1 = track(i).y1
-
-            X_2 = track(i).x2
-            Z_2 = track(i).y2
-
-            X_3 = track(i).x3
-            Z_3 = track(i).y3
-
-            X_4 = track(i).x4
-            Z_4 = track(i).y4
-
-            'Exit For
-            'End If
-
-
             '       (4 - x4y4)                         (3 - x3y3)
             '        ___________________________________________
             '       |                     3                     |
@@ -1358,66 +1185,30 @@ Public Class clsGameDrive
             '       |                                           |
             '       |_____________________1_____________________|
             '       (1 - x1y1)                         (2 - x2y2)
+            With track(i)
+                If isPointInQuad(-cameraPositionX, -cameraPositionZ, .x1, .x2, .x3, .x4, .y1, .y2, .y3, .y4) Then
+                    isOnTrack = True
+                    speed = ORIGINALSPEED
+                    currentTrackTileID = i
+                    If maxTrackTileID < i Then maxTrackTileID = i
 
+                    With zone(i)
+                        If isPointInQuad(-cameraPositionX, -cameraPositionZ, .x1, .x2, .x3, .x4, .y1, .y2, .y3, .y4) Then
+                            isInZone = True
+                        End If
+                    End With
 
-
-            y = -cameraPositionZ
-            x = -cameraPositionX
-
-            'calculate which side of the line 1 the camera is on
-            x0 = X_1
-            y0 = Z_1
-            x1 = X_2
-            y1 = Z_2
-            Dim side1 As Single = (y - y0) * (x1 - x0) - (x - x0) * (y1 - y0)
-
-            'calculate which side of the line 2 the camera is on
-            x0 = X_2
-            y0 = Z_2
-            x1 = X_3
-            y1 = Z_3
-            Dim side2 As Single = (y - y0) * (x1 - x0) - (x - x0) * (y1 - y0)
-
-            'calculate which side of the line 3 the camera is on
-            x0 = X_3
-            y0 = Z_3
-            x1 = X_4
-            y1 = Z_4
-            Dim side3 As Single = (y - y0) * (x1 - x0) - (x - x0) * (y1 - y0)
-
-            'calculate which side of the line 4 the camera is on
-            x0 = X_4
-            y0 = Z_4
-            x1 = X_1
-            y1 = Z_1
-            Dim side4 As Single = (y - y0) * (x1 - x0) - (x - x0) * (y1 - y0)
-
-            'if all sides are of the same magnitude, the the point is on the interior of the polygon
-            If side1 <= 0 And side2 <= 0 And side3 <= 0 And side4 <= 0 Then
-                isOnTrack = True
-                speed = ORIGINALSPEED
-                currentTrackTileID = i
-
-                Exit Function
-            ElseIf side1 >= 0 And side2 >= 0 And side3 >= 0 And side4 >= 0 Then
-                isOnTrack = True
-                speed = ORIGINALSPEED
-                currentTrackTileID = i
-
-                Exit Function
-            End If
-
+                    Exit Function
+                End If
+            End With
         Next
 
-        isOnTrack = False
         'speed = 0.5 * ORIGINALSPEED
 
         'if the car is 90 to 270, then it's going backwards.  adjust speed accordingly  at 180, it takes 1 second
         ' to decrement.
         '
         'from 270 to 90, the car is going forward. at 0, car is going full speed.
-
-
         Dim ss As Single
         If cameraRotation > 180 Then
             ss = (-270 + cameraRotation) / 90
@@ -1425,113 +1216,9 @@ Public Class clsGameDrive
             ss = (90 - cameraRotation) / 90
         End If
         currentTrackTileID = currentTrackTileID + (ss * 0.03)
-
-
     End Function
 
-
-
-    Private Sub scored()
-        Dim i As Integer
-        Dim X_1, X_2, X_3, X_4, Z_1, Z_2, Z_3, Z_4 As Single
-        Dim x, y, y0, y1, x0, x1 As Single
-
-
-        For i = 1 To CONEPOINTS
-
-            If cones(i).scored = False Then
-
-                X_1 = cones(i).x1 - 10
-                Z_1 = cones(i).y1 - 10
-
-                X_2 = cones(i).x2 + 10
-                Z_2 = cones(i).y2 - 10
-
-                X_3 = cones(i).x2 + 10
-                Z_3 = cones(i).y2 + 10
-
-                X_4 = cones(i).x1 - 10
-                Z_4 = cones(i).y1 + 10
-
-
-
-                '       (4 - x4y4)                         (3 - x3y3)
-                '        ___________________________________________
-                '       |                     3                     |
-                '       |                                           |
-                '       |                                           |
-                '       |                                           |
-                '       |4                                        2 |
-                '       |                                           |
-                '       |                                           |
-                '       |                                           |
-                '       |_____________________1_____________________|
-                '       (1 - x1y1)                         (2 - x2y2)
-
-
-
-                y = -cameraPositionZ
-                x = -cameraPositionX
-
-                'calculate which side of the line 1 the camera is on
-                x0 = X_1
-                y0 = Z_1
-                x1 = X_2
-                y1 = Z_2
-                Dim side1 As Single = (y - y0) * (x1 - x0) - (x - x0) * (y1 - y0)
-
-                'calculate which side of the line 2 the camera is on
-                x0 = X_2
-                y0 = Z_2
-                x1 = X_3
-                y1 = Z_3
-                Dim side2 As Single = (y - y0) * (x1 - x0) - (x - x0) * (y1 - y0)
-
-                'calculate which side of the line 3 the camera is on
-                x0 = X_3
-                y0 = Z_3
-                x1 = X_4
-                y1 = Z_4
-                Dim side3 As Single = (y - y0) * (x1 - x0) - (x - x0) * (y1 - y0)
-
-                'calculate which side of the line 4 the camera is on
-                x0 = X_4
-                y0 = Z_4
-                x1 = X_1
-                y1 = Z_1
-                Dim side4 As Single = (y - y0) * (x1 - x0) - (x - x0) * (y1 - y0)
-
-                'if all sides are of the same magnitude, the the point is on the interior of the polygon
-                If side1 <= 0 And side2 <= 0 And side3 <= 0 And side4 <= 0 Then
-                    If cones(i).greenCone = True Then
-                        cones(i).scored = True
-                        score += 1
-                    Else
-                        cones(i).scored = True
-                        If score > 0 Then score -= 1
-                    End If
-                    Exit Sub
-                ElseIf side1 >= 0 And side2 >= 0 And side3 >= 0 And side4 >= 0 Then
-                    If cones(i).greenCone = True Then
-                        cones(i).scored = True
-                        score += 1
-
-                        playSound(startUpPath & "\texture\sounds\sound1.wav")
-                    Else
-                        cones(i).scored = True
-                        If score > 0 Then score -= 1
-                    End If
-                    Exit Sub
-                End If
-            End If
-        Next
-
-    End Sub
-
-
-
     Private Sub drawSkyCylinder()
-
         Dim i As Single
         Dim radius As Single = 1000
         Dim degrees As Single = 5
@@ -1539,10 +1226,8 @@ Public Class clsGameDrive
         Dim j As Single = 0
         Dim flip As Boolean = False
 
-
         Dim start As Single = halfDegrees
         Dim endS As Single = (halfDegrees + degrees * 5) - degrees
-
 
         If skyRotate < 360 Then
             skyRotate = skyRotate + 0.05F
@@ -1550,20 +1235,15 @@ Public Class clsGameDrive
             skyRotate = 0
         End If
 
-
-
         GL.PushAttrib(AttribMask.AllAttribBits)
         GL.PushMatrix()
-
 
         GL.Disable(EnableCap.Lighting)
         GL.Enable(EnableCap.Blend)
         GL.Enable(EnableCap.Texture2D)
         GL.Disable(EnableCap.DepthTest)
 
-
         GL.Rotate(skyRotate + cameraRotation, 0, 1, 0)
-
 
         GL.BlendFunc(BlendingFactorSrc.DstColor, BlendingFactorDest.Zero)
         GL.Enable(EnableCap.Texture2D)
@@ -1571,14 +1251,12 @@ Public Class clsGameDrive
         GL.Begin(BeginMode.QuadStrip)
         GL.Color3(255.0, 255.0, 255.0)
         For i = halfDegrees To halfDegrees + 360 Step degrees
-
             GL.TexCoord2(j, 0)
             GL.Vertex3(Math.Sin(i * DtoR) * radius, radius, Math.Cos(i * DtoR) * radius)
             GL.TexCoord2(j, 0.5)
             GL.Vertex3(Math.Sin(i * DtoR) * radius, -12, Math.Cos(i * DtoR) * radius)
 
             j += degrees / 360
-
         Next
         GL.End()
 
@@ -1588,32 +1266,23 @@ Public Class clsGameDrive
         GL.Begin(BeginMode.QuadStrip)
         GL.Color4(255.0, 255.0, 255.0, 255.0)
         For i = halfDegrees To halfDegrees + 360 Step degrees
-
             GL.TexCoord2(j, 0)
             GL.Vertex3(Math.Sin(i * DtoR) * radius, radius, Math.Cos(i * DtoR) * radius)
             GL.TexCoord2(j, 0.5)
             GL.Vertex3(Math.Sin(i * DtoR) * radius, -12, Math.Cos(i * DtoR) * radius)
 
             j += degrees / 360
-
         Next
         GL.End()
-
 
         GL.Disable(EnableCap.Blend)
         GL.Enable(EnableCap.DepthTest)
 
-
         GL.PopMatrix()
-
         GL.PopAttrib()
-
     End Sub
 
-
-
     Private Sub drawMountains()
-
         Dim i As Single
         Dim radius As Single = 1000
         Dim degrees As Single = 5
@@ -1630,8 +1299,12 @@ Public Class clsGameDrive
 
         GL.Rotate(cameraRotation, 0, 1, 0)
 
-
-        GL.BindTexture(TextureTarget.Texture2D, MyTexture(6))
+        Select Case map
+            Case 0
+                GL.BindTexture(TextureTarget.Texture2D, MyTexture(6))
+            Case 1
+                GL.BindTexture(TextureTarget.Texture2D, MyTexture(26))
+        End Select
 
         GL.Begin(BeginMode.QuadStrip)
         GL.Color3(255.0F, 255.0F, 255.0F)
@@ -1648,6 +1321,13 @@ Public Class clsGameDrive
         GL.PopAttrib()
     End Sub
 
+    Private nextScore As DateTime = DateTime.Now.AddSeconds(4)
+    Private Sub scoring()
+        If nextScore < DateTime.Now Then
+            If isInZone Then score += 1
+            nextScore = DateTime.Now.AddSeconds(1)
+        End If
+    End Sub
 
 
     '**************************************************************************************************
@@ -1695,19 +1375,16 @@ Public Class clsGameDrive
         GL.LoadIdentity()
     End Sub
     '***********************************************************************************************************************************
-
     Public Overrides Sub renderLoop()
-
         If Not GlLoaded Then Return
 
         GL.Clear(ClearBufferMask.ColorBufferBit Or ClearBufferMask.DepthBufferBit) '// Clear Screen and Depth Buffer
         GL.LoadIdentity()
 
-
         If started = True Then
             If completed = False Then
                 inputMethods.getInput(currentInputMethod, reps)
-
+                checkPosition()
 
                 drawMountains()
                 drawSkyCylinder()
@@ -1715,12 +1392,11 @@ Public Class clsGameDrive
                 GL.Rotate(cameraRotation, 0, 1, 0)
                 GL.Translate(cameraPositionX, -10, cameraPositionZ)
 
-
                 drawTerrain()
-                scored()
                 drawRaceTrack()
                 drawDash()
                 drawCompass()
+                scoring()
 
                 If totalTime > (initialDuration - 3) Then
                     If totalTime = (initialDuration - 3) And countDownNumbers(0) = False Then
@@ -1737,29 +1413,55 @@ Public Class clsGameDrive
                     drawScoreAndTime(score, initialDuration, 200, 0, 0, fontSizes.size_36, 255)
                 ElseIf totalTime <= 0 Then
                     exitGame()
+                    Exit Sub
                 Else
                     Dim carRotation As Single = GlobalCurrentX
-
-
 
                     MoveLeftRight((speed * (carRotation) * 2) - (speed))
                     MoveForward()
                     drawScoreAndTime(score, totalTime, 200, 0, 0, fontSizes.size_36, 255)
                 End If
 
+                If nextDistraction < DateTime.Now Then
+                    endDistraction = DateTime.Now.AddMilliseconds(distractionHangTimes(Rand(0, distractionHangTimes.Length - 1)))
+                    nextDistraction = endDistraction.AddSeconds(Rand(minDistractionInterval, maxDistractionInterval))
+                    currentDistraction = Rand(2, 4)
+                ElseIf endDistraction < DateTime.Now Then
+                    currentDistraction = 1
+                End If
+
                 decrementTimeCheckMyo(currentInputMethod)
+
+                With track(currentTrackTileID + 1)
+                    Dim X1 = Math.Round((.x1 + .x2 + .x3 + .x4) / 4)
+                    Dim Y1 = Math.Round((.y1 + .y2 + .y3 + .y4) / 4)
+                    Dim W = -cameraPositionX - X1
+                    Dim H = -cameraPositionZ - Y1
+                    Dim R = -Math.Round(Math.Atan2(W, H) * 180 / Math.PI)
+                    If R < 0 Then R += 360
+                    If R > 360 Then R -= 360
+                    Dim d = R - cameraRotation
+
+                    If d < 0 Then d += 360
+                    If d > 360 Then d -= 360
+
+                    If d > 180 Then d -= 360
+
+                    If Not isOnTrack AndAlso Math.Abs(d) > 1 Then cameraRotation += Math.Max(Math.Abs(d) * 0.1F, 1) * Math.Sign(d)
+
+                    drawTextAt("TileID: " & X1 & ", " & Y1, 255, 255, 0, 0, 10, 70, fontSizes.size_36, fontType.arial)
+                    drawTextAt("Camera: " & Math.Round(-cameraPositionX) & ", " & Math.Round(-cameraPositionZ), 255, 255, 0, 0, 10, 110, fontSizes.size_36, fontType.arial)
+                    drawTextAt("Vector: " & Math.Round(W) & ", " & Math.Round(H), 255, 255, 0, 0, 10, 150, fontSizes.size_36, fontType.arial)
+                    drawTextAt("Rotation: " & Math.Round(cameraRotation) & ", " & R, 255, 255, 0, 0, 10, 190, fontSizes.size_36, fontType.arial)
+                    drawTextAt("Delta: " & Math.Round(d), 255, 255, 0, 0, 10, 230, fontSizes.size_36, fontType.arial)
+                End With
+                drawTextAt("Zone: " & isInZone, 255, 255, 0, 0, 10, 270, fontSizes.size_36, fontType.arial)
             End If
         Else
             drawTextAt(prompt, 255, 255, 255, 255, 20, 20, fontSizes.size_36, fontType.arial)
             drawInput(2, 2, 0.4)
         End If
-
     End Sub
-
-
-
-
-
 
     Public Overrides Sub handleKeyPress(ByVal sender As Object, ByVal e As OpenTK.KeyPressEventArgs)
         If e.KeyChar = " " Then
@@ -1782,24 +1484,23 @@ Public Class clsGameDrive
         End If
 
         initializeTrack()
-        initializeCones()
-        initializeDistractions()
+        initializeObjects()
 
         compassRotate = 0
         compassIncrementing = 2
-        coneColor = 0
-        increasing = False
+
         skyRotate = 0
 
         theta = 0
         currentTrackTileID = 0
+        maxTrackTileID = 0
 
         countDownNumbers(0) = False
         countDownNumbers(1) = False
         countDownNumbers(2) = False
 
         cameraPositionZ = 0
-        cameraPositionX = 0
+        cameraPositionX = -25
         cameraRotation = 0
 
 
@@ -1810,15 +1511,19 @@ Public Class clsGameDrive
         score = 0
         started = False
         completed = False
-    End Sub
 
+        map = Rand(0, 1)
+
+        nextDistraction = DateTime.Now.AddSeconds(3 + Rand(minDistractionInterval, maxDistractionInterval))
+        endDistraction = nextDistraction
+    End Sub
 
     Public Sub New(ByVal taskid1 As Integer, ByVal taskid2 As Integer, ByVal taskname As String,
                            ByVal duration As Integer, ByVal input_method As gameDevices,
                            ByVal opt1 As Integer, ByVal opt2 As Integer, ByVal opt3 As Integer,
                            ByVal game_screen_type As gameScreens, ByVal biman As Boolean, ByVal photo As Boolean)
 
-        MyBase.New(15, input_method, game_screen_type, duration, taskid1, taskname, photo, opt1, opt2, opt3)
+        MyBase.New(27, input_method, game_screen_type, duration, taskid1, taskname, photo, opt1, opt2, opt3)
 
         loadInputTexture(input_method)
         textureNames(2) = startUpPath & "\texture\drive\grass.jpg"
@@ -1834,21 +1539,18 @@ Public Class clsGameDrive
         textureNames(12) = startUpPath & "\texture\drive\CountDown2Mask.jpg"
         textureNames(13) = startUpPath & "\texture\drive\CountDown1.jpg"
         textureNames(14) = startUpPath & "\texture\drive\CountDown1Mask.jpg"
-
-
-
-
-        If opt2 = 3 Then
-            minCone = 30
-            maxCone = 40
-        ElseIf opt2 = 2 Then
-            minCone = 20
-            maxCone = 30
-        Else
-            minCone = 10
-            maxCone = 20
-        End If
-
+        textureNames(15) = startUpPath & "\texture\drive\_0004_blueBillboard.jpg"
+        textureNames(16) = startUpPath & "\texture\drive\_0001_greenBillboard.jpg"
+        textureNames(17) = startUpPath & "\texture\drive\_0002_redBillboard.jpg"
+        textureNames(18) = startUpPath & "\texture\drive\_0003_whiteBillboard.jpg"
+        textureNames(19) = startUpPath & "\texture\drive\_0000_maskBillboard.jpg"
+        textureNames(20) = startUpPath & "\texture\drive\blueButton.jpg"
+        textureNames(21) = startUpPath & "\texture\drive\greenButton.jpg"
+        textureNames(22) = startUpPath & "\texture\drive\redButton.jpg"
+        textureNames(23) = startUpPath & "\texture\drive\whiteButton.jpg"
+        textureNames(24) = startUpPath & "\texture\drive\maskButton.jpg"
+        textureNames(25) = startUpPath & "\texture\drive\sand.jpg"
+        textureNames(26) = startUpPath & "\texture\drive\beach.jpg"
 
         If opt3 = 3 Then
             ORIGINALSPEED = 6
@@ -1858,19 +1560,13 @@ Public Class clsGameDrive
             ORIGINALSPEED = 2
         End If
 
-
-
         MyBase.specifyTextures(textureNames)
 
         MyBase.setPrompt(moduleGameInstructions.returnPrompt(game_screen_type, duration, input_method))
 
-
-
         totalTime = duration
         initialDuration = duration
     End Sub
-
-
 End Class
 
 
