@@ -11,26 +11,21 @@ Public Class clsGameDrive
 
     Private Structure TrackTile
         'lower left corner
-        Dim x1 As Single
-        Dim y1 As Single
+        Dim v1 As OpenTK.Vector3
 
         'top left corner
-        Dim x2 As Single
-        Dim y2 As Single
+        Dim v2 As OpenTK.Vector3
 
         'top right corner
-        Dim x3 As Single
-        Dim y3 As Single
+        Dim v3 As OpenTK.Vector3
 
         'lower right corner
-        Dim x4 As Single
-        Dim y4 As Single
-
+        Dim v4 As OpenTK.Vector3
     End Structure
 
-    Private Class GameObject
-        Public position As OpenTK.Vector3
-    End Class
+    Private Structure GameObject
+        Dim position As OpenTK.Vector3
+    End Structure
 
     '**************************************************************************************************
     ' TRACKPOINTS - a constant indicating how many track points in the z direction there are.  Each
@@ -55,13 +50,14 @@ Public Class clsGameDrive
     ' TRACKDEPTH - a constant indicating the depth (z direction, far to near on screen)
     '              of each track tile. 
     '**************************************************************************************************
-    Private Const TRACKDEPTH As Single = 100
+    Private Const TRACKDEPTH As Single = 130
 
     '**************************************************************************************************
     ' DtoR - a constant that is used in the conversion of degrees to radians.  All trigonomic 
     '        functions used in the calculations of where the car is needs to be in radians.  
     '**************************************************************************************************
     Private Const DtoR As Single = (Math.PI / 180.0F)
+    Private Const RtoD As Single = (180.0F / Math.PI)
 
     '**************************************************************************************************
     ' cameraPositionZ - the current position of the camera along the z axis, which is near/far with
@@ -115,31 +111,77 @@ Public Class clsGameDrive
 
     Private skyRotate As Single = 0
 
-    ' array to store scoring zones
-    Private zone(TRACKPOINTS) As TrackTile
-
-    ' array to store distraction objects
-    Private objects() As GameObject
+    'Custom parameters
     Private Const OBJECTSTART As Integer = 15 ' track tile to start road objects on
     Private Const OBJECTINTERVAL As Integer = 10 ' interval between each road object
     Private Const OBJECTDISTANCE As Integer = 50 ' distance from the track for each side object
+    Private Const ZONEOFFSET As Single = 20.0F 'the fuzzy offset of zones, to simulate carwidth detection
+    Private Const SHAKEINTENSITY As Single = 0.15F 'height at which shaking when offroad
+    Private Const SHAKESPEED As Single = 0.6F 'speed at which shaking occurs
+    Private Const TOWCHECK As Integer = 3 'time til towing
+    Private Const TOWDURATION As Single = 3.0F 'time to tow
+    Private Const DISTRACTIONINTERVAL_MIN As Integer = 2 'minimum interval between distractions
+    Private Const DISTRACTIONINVERVAL_MAX As Integer = 3 'maximum interval between distractions
+    Private ReadOnly DISTRACTIONDURATION_ARRAY As Integer() = {250, 500, 750, 1000, 1500, 2000, 3000} 'array of hang times for distractions
+    Private ReadOnly DISTRACTIONTEXTUREINDEX As Integer() = {20, 22, 24} 'corresponds to mask index in array
+    Private Const BUTTONSIZE As Single = 2.25F 'size of distractors
+    Private ReadOnly DISTRACTIONCOLORS As OpenTK.Vector3() = { 'colors for distractions
+        New OpenTK.Vector3(1, 0, 0),
+        New OpenTK.Vector3(0, 1, 0),
+        New OpenTK.Vector3(0, 0, 1)}
+    Private Const FEEDBACKDURATION As Single = 2.0F 'how long to show feedback
+    Private ReadOnly FEEDBACKPOSITIVECOLOR As New OpenTK.Vector3(0, 0.7F, 0)
+    Private ReadOnly FEEDBACKNEGATIVECOLOR As New OpenTK.Vector3(1, 0F, 0)
+    Private ReadOnly WHITECOLOR As New OpenTK.Vector3(1, 1, 1)
+    Private Const SCOREINTERVAL As Double = 1
+    Private Const HIGH_SCORE As Integer = 3 'score for staying completely inside during score intervals
+    Private Const MED_SCORE As Integer = 2 'score for leaving zone for a split second during an interval
+    Private Const LOW_SCORE As Integer = 1 'score for leaving correct side of the road
+    Private Const BUMPERSPEED As Single = 0.05F 'speed of camera correction when off track (percentage)
 
-    Private map As Long = 0 'map selection
+    ' array to store scoring zones
+    Private zoneTrack(TRACKPOINTS) As TrackTile
+    Private zoneStrict(TRACKPOINTS) As TrackTile
+    Private zoneFuzzy(TRACKPOINTS) As TrackTile
+    Private objects() As GameObject ' array to store objects
 
     Private nextDistraction As DateTime 'time til next distraction
     Private endDistraction As DateTime 'time when current distraction ends
-    Private minDistractionInterval As Integer = 3 'minimum interval between distractions
-    Private maxDistractionInterval As Integer = 6 'maximum interval between distractions
+    Private currentDistractionShape As Integer = 0 'distractionShape
 
-    Private distractionHangTimes As Integer() = {250, 500, 750, 1000, 1500, 2000, 3000} 'array of hang times for distractions
+    Private endFeedback As DateTime  'time to end feedback
 
-    Private currentDistraction As Integer = 1 'initial distraction (1 is no distraction)
+    Private nextScore As DateTime = DateTime.Now.AddSeconds(3 + SCOREINTERVAL) 'set initial scoring to after countdown
+    Private nextScoreAmount As Integer = HIGH_SCORE 'set next score amount
+
+    Private lastZoneTime As DateTime = DateTime.Now 'time last inside zone
+
+    Private towPosition As OpenTK.Vector3 'towing start position
+    Private towTarget As OpenTK.Vector3 'tow target
+    Private towStart As DateTime 'tow start time
+
+    'flags
+    Private buttonPressed As Boolean = False 'flag to check if button was pressed
+    Private wrongButton As Boolean = False 'Flag to check button pressed was wrong
     Private isInZone As Boolean = False 'indicator if car is inside scoring zone
+    Private isInHalfZone As Boolean = False 'indicator if car is halfway inside scoring zone
     Private isOnTrack As Boolean = False 'indicator if car is within the track
+    Private towing As Boolean = False 'flag is towing
+    Private ending As Boolean = False 'flag is ending
 
-    Private nextScore As DateTime = DateTime.Now.AddSeconds(4) 'set initial scoring to after countdown
+    'counters
+    Private totalDistractors As Integer = 0
+    Private totalCorrectDistractors As Integer = 0
+    Private totalIncorrectDistractors As Integer = 0
+    Private correctDistractors As Integer = 0
+    Private incorrectDistractors As Integer = 0
 
-    Private rotationSpeed As Single = 0.025F 'speed of camera correction when off track (percentage)
+    'options
+    Private map As Long = 0 'map selection
+    Private difficulty As Integer = 2 'Difficulty 1 easy, 2 med, 3 hard
+    Private bumpers As Boolean = False 'turn bumpers on and off
+    Private tow As Boolean = True 'turn on and off towing (doesn't work well with bumpers)
+    Private currentDistractionColor As Integer = 0 'distraction
 
     '**************************************************************************************************
     ' 
@@ -162,494 +204,92 @@ Public Class clsGameDrive
 
 #Region "Initalizers"
 
-    Private Sub leftWidget(ByVal start As Integer, ByVal length As Integer)
-
-        Dim i As Integer
-
-        Dim turn1 As Integer = (length / 5)
-        Dim turn2 As Integer = (length / 5) * 2
-        Dim turn3 As Integer = (length / 5) * 3
-        Dim turn4 As Integer = (length / 5) * 4
-        Dim turn5 As Integer = (length / 5) * 5
-
-
-
-        'vertical-up block
-        For i = 0 To turn1 - 1
-            track(start + i).x1 = track(start + i - 1).x4
-            track(start + i).y1 = track(start + i - 1).y4
-
-            track(start + i).x2 = track(start + i - 1).x3
-            track(start + i).y2 = track(start + i - 1).y3
-
-            track(start + i).x3 = track(start + i - 1).x3
-            track(start + i).y3 = track(start + i - 1).y3 - TRACKDEPTH
-
-            track(start + i).x4 = track(start + i - 1).x4
-            track(start + i).y4 = track(start + i - 1).y4 - TRACKDEPTH
-
-        Next
-
-        'up->left block
-        For i = turn1 To turn1
-            track(start + i).x1 = track(start + i - 1).x4
-            track(start + i).y1 = track(start + i - 1).y4
-
-            track(start + i).x2 = track(start + i - 1).x3
-            track(start + i).y2 = track(start + i - 1).y3
-
-            track(start + i).x3 = track(start + i - 1).x4
-            track(start + i).y3 = track(start + i - 1).y4 - TRACKDEPTH
-
-            track(start + i).x4 = track(start + i - 1).x4
-            track(start + i).y4 = track(start + i - 1).y4
-        Next
-
-        'horizontal-left block
-        For i = turn1 + 1 To turn2 - 1
-            track(start + i).x1 = track(start + i - 1).x4
-            track(start + i).y1 = track(start + i - 1).y4
-
-            track(start + i).x2 = track(start + i - 1).x3
-            track(start + i).y2 = track(start + i - 1).y3
-
-            track(start + i).x3 = track(start + i).x2 - TRACKWIDTH
-            track(start + i).y3 = track(start + i).y2
-
-            track(start + i).x4 = track(start + i).x1 - TRACKWIDTH
-            track(start + i).y4 = track(start + i).y1
-        Next
-
-        'left->up block
-        For i = turn2 To turn2
-            track(start + i).x1 = track(start + i - 1).x4
-            track(start + i).y1 = track(start + i - 1).y4
-
-            track(start + i).x2 = track(start + i - 1).x3
-            track(start + i).y2 = track(start + i - 1).y3
-
-            track(start + i).x3 = track(start + i - 1).x3
-            track(start + i).y3 = track(start + i - 1).y3
-
-            track(start + i).x4 = track(start + i - 1).x3 - TRACKWIDTH
-            track(start + i).y4 = track(start + i - 1).y3
-        Next
-
-        'vertical-up block
-        For i = turn2 + 1 To turn3 - 1
-            track(start + i).x1 = track(start + i - 1).x4
-            track(start + i).y1 = track(start + i - 1).y4
-
-            track(start + i).x2 = track(start + i - 1).x3
-            track(start + i).y2 = track(start + i - 1).y3
-
-            track(start + i).x3 = track(start + i - 1).x3
-            track(start + i).y3 = track(start + i - 1).y3 - TRACKDEPTH
-
-            track(start + i).x4 = track(start + i - 1).x4
-            track(start + i).y4 = track(start + i - 1).y4 - TRACKDEPTH
-        Next
-
-        'up->right block
-        For i = turn3 To turn3
-            track(start + i).x1 = track(start + i - 1).x4
-            track(start + i).y1 = track(start + i - 1).y4
-
-            track(start + i).x2 = track(start + i - 1).x3
-            track(start + i).y2 = track(start + i - 1).y3
-
-            track(start + i).x3 = track(start + i - 1).x3
-            track(start + i).y3 = track(start + i - 1).y3
-
-            track(start + i).x4 = track(start + i - 1).x3
-            track(start + i).y4 = track(start + i - 1).y3 - TRACKDEPTH
-        Next
-
-        'horizontal-right block
-        For i = turn3 + 1 To turn4 - 1
-            track(start + i).x1 = track(start + i - 1).x4
-            track(start + i).y1 = track(start + i - 1).y4
-
-            track(start + i).x2 = track(start + i - 1).x3
-            track(start + i).y2 = track(start + i - 1).y3
-
-            track(start + i).x3 = track(start + i).x2 + TRACKWIDTH
-            track(start + i).y3 = track(start + i).y2
-
-            track(start + i).x4 = track(start + i).x1 + TRACKWIDTH
-            track(start + i).y4 = track(start + i).y1
-        Next
-
-        'right->up block
-        For i = turn4 To turn4
-            track(start + i).x1 = track(start + i - 1).x4
-            track(start + i).y1 = track(start + i - 1).y4
-
-            track(start + i).x2 = track(start + i - 1).x3
-            track(start + i).y2 = track(start + i - 1).y3
-
-            track(start + i).x3 = track(start + i - 1).x4 + TRACKWIDTH
-            track(start + i).y3 = track(start + i - 1).y4
-
-            track(start + i).x4 = track(start + i - 1).x4
-            track(start + i).y4 = track(start + i - 1).y4
-        Next
-
-        'vertical-up block
-        For i = turn4 + 1 To turn5 - 1
-            track(start + i).x1 = track(start + i - 1).x4
-            track(start + i).y1 = track(start + i - 1).y4
-
-            track(start + i).x2 = track(start + i - 1).x3
-            track(start + i).y2 = track(start + i - 1).y3
-
-            track(start + i).x3 = track(start + i - 1).x3
-            track(start + i).y3 = track(start + i - 1).y3 - TRACKDEPTH
-
-            track(start + i).x4 = track(start + i - 1).x4
-            track(start + i).y4 = track(start + i - 1).y4 - TRACKDEPTH
-        Next
-    End Sub
-
-    Private Sub rightWidget(ByVal start As Integer, ByVal length As Integer)
-
-        Dim i As Integer
-
-        Dim turn1 As Integer = (length / 5)
-        Dim turn2 As Integer = (length / 5) * 2
-        Dim turn3 As Integer = (length / 5) * 3
-        Dim turn4 As Integer = (length / 5) * 4
-        Dim turn5 As Integer = (length / 5) * 5
-
-
-
-        'vertical-up block
-        For i = 0 To turn1 - 1
-            track(start + i).x1 = track(start + i - 1).x4
-            track(start + i).y1 = track(start + i - 1).y4
-
-            track(start + i).x2 = track(start + i - 1).x3
-            track(start + i).y2 = track(start + i - 1).y3
-
-            track(start + i).x3 = track(start + i - 1).x3
-            track(start + i).y3 = track(start + i - 1).y3 - TRACKDEPTH
-
-            track(start + i).x4 = track(start + i - 1).x4
-            track(start + i).y4 = track(start + i - 1).y4 - TRACKDEPTH
-
-        Next
-
-        'up->right block
-        For i = turn1 To turn1
-            track(start + i).x1 = track(start + i - 1).x4
-            track(start + i).y1 = track(start + i - 1).y4
-
-            track(start + i).x2 = track(start + i - 1).x3
-            track(start + i).y2 = track(start + i - 1).y3
-
-            track(start + i).x3 = track(start + i - 1).x3
-            track(start + i).y3 = track(start + i - 1).y3
-
-            track(start + i).x4 = track(start + i - 1).x3
-            track(start + i).y4 = track(start + i - 1).y3 - TRACKDEPTH
-        Next
-
-        'horizontal-right block
-        For i = turn1 + 1 To turn2 - 1
-            track(start + i).x1 = track(start + i - 1).x4
-            track(start + i).y1 = track(start + i - 1).y4
-
-            track(start + i).x2 = track(start + i - 1).x3
-            track(start + i).y2 = track(start + i - 1).y3
-
-            track(start + i).x3 = track(start + i).x2 + TRACKWIDTH
-            track(start + i).y3 = track(start + i).y2
-
-            track(start + i).x4 = track(start + i).x1 + TRACKWIDTH
-            track(start + i).y4 = track(start + i).y1
-        Next
-
-        'right->up block
-        For i = turn2 To turn2
-            track(start + i).x1 = track(start + i - 1).x4
-            track(start + i).y1 = track(start + i - 1).y4
-
-            track(start + i).x2 = track(start + i - 1).x3
-            track(start + i).y2 = track(start + i - 1).y3
-
-            track(start + i).x3 = track(start + i - 1).x4 + TRACKWIDTH
-            track(start + i).y3 = track(start + i - 1).y4
-
-            track(start + i).x4 = track(start + i - 1).x4
-            track(start + i).y4 = track(start + i - 1).y4
-        Next
-
-        'vertical-up block
-        For i = turn2 + 1 To turn3 - 1
-            track(start + i).x1 = track(start + i - 1).x4
-            track(start + i).y1 = track(start + i - 1).y4
-
-            track(start + i).x2 = track(start + i - 1).x3
-            track(start + i).y2 = track(start + i - 1).y3
-
-            track(start + i).x3 = track(start + i - 1).x3
-            track(start + i).y3 = track(start + i - 1).y3 - TRACKDEPTH
-
-            track(start + i).x4 = track(start + i - 1).x4
-            track(start + i).y4 = track(start + i - 1).y4 - TRACKDEPTH
-        Next
-
-        'up->left block
-        For i = turn3 To turn3
-            track(start + i).x1 = track(start + i - 1).x4
-            track(start + i).y1 = track(start + i - 1).y4
-
-            track(start + i).x2 = track(start + i - 1).x3
-            track(start + i).y2 = track(start + i - 1).y3
-
-            track(start + i).x3 = track(start + i - 1).x4
-            track(start + i).y3 = track(start + i - 1).y4 - TRACKDEPTH
-
-            track(start + i).x4 = track(start + i - 1).x4
-            track(start + i).y4 = track(start + i - 1).y4
-        Next
-
-        'horizontal-left block
-        For i = turn3 + 1 To turn4 - 1
-            track(start + i).x1 = track(start + i - 1).x4
-            track(start + i).y1 = track(start + i - 1).y4
-
-            track(start + i).x2 = track(start + i - 1).x3
-            track(start + i).y2 = track(start + i - 1).y3
-
-            track(start + i).x3 = track(start + i).x2 - TRACKWIDTH
-            track(start + i).y3 = track(start + i).y2
-
-            track(start + i).x4 = track(start + i).x1 - TRACKWIDTH
-            track(start + i).y4 = track(start + i).y1
-        Next
-
-        'left->up block
-        For i = turn4 To turn4
-            track(start + i).x1 = track(start + i - 1).x4
-            track(start + i).y1 = track(start + i - 1).y4
-
-            track(start + i).x2 = track(start + i - 1).x3
-            track(start + i).y2 = track(start + i - 1).y3
-
-            track(start + i).x3 = track(start + i - 1).x3
-            track(start + i).y3 = track(start + i - 1).y3
-
-            track(start + i).x4 = track(start + i - 1).x3 - TRACKWIDTH
-            track(start + i).y4 = track(start + i - 1).y3
-        Next
-
-        'vertical-up block
-        For i = turn4 + 1 To turn5 - 1
-            track(start + i).x1 = track(start + i - 1).x4
-            track(start + i).y1 = track(start + i - 1).y4
-
-            track(start + i).x2 = track(start + i - 1).x3
-            track(start + i).y2 = track(start + i - 1).y3
-
-            track(start + i).x3 = track(start + i - 1).x3
-            track(start + i).y3 = track(start + i - 1).y3 - TRACKDEPTH
-
-            track(start + i).x4 = track(start + i - 1).x4
-            track(start + i).y4 = track(start + i - 1).y4 - TRACKDEPTH
-        Next
-
-
-
-
-
-
-    End Sub
-
-    Private Sub rightZig(ByVal start As Integer, ByVal length As Integer, ByVal increment As Single)
-
-        Dim i As Integer
-
-        Dim turn1 As Integer = (length / 2)
-        Dim turn2 As Integer = length
-
-        'zigout
-        For i = 0 To turn1 - 1
-            track(start + i).x1 = track(start + i - 1).x4
-            track(start + i).y1 = track(start + i - 1).y4
-
-            track(start + i).x2 = track(start + i - 1).x3
-            track(start + i).y2 = track(start + i - 1).y3
-
-            track(start + i).x3 = track(start + i - 1).x3 + increment
-            track(start + i).y3 = track(start + i - 1).y3 - TRACKDEPTH
-
-            track(start + i).x4 = track(start + i - 1).x4 + increment
-            track(start + i).y4 = track(start + i - 1).y4 - TRACKDEPTH
-
-        Next
-
-        'zigin
-        For i = turn1 To turn2 - 1
-            track(start + i).x1 = track(start + i - 1).x4
-            track(start + i).y1 = track(start + i - 1).y4
-
-            track(start + i).x2 = track(start + i - 1).x3
-            track(start + i).y2 = track(start + i - 1).y3
-
-            track(start + i).x3 = track(start + i - 1).x3 - increment
-            track(start + i).y3 = track(start + i - 1).y3 - TRACKDEPTH
-
-            track(start + i).x4 = track(start + i - 1).x4 - increment
-            track(start + i).y4 = track(start + i - 1).y4 - TRACKDEPTH
-        Next
-
-    End Sub
-
-    Private Sub leftZig(ByVal start As Integer, ByVal length As Integer, ByVal increment As Single)
-
-        Dim i As Integer
-
-        Dim turn1 As Integer = (length / 2)
-        Dim turn2 As Integer = length
-
-        'zigout
-        For i = 0 To turn1 - 1
-            track(start + i).x1 = track(start + i - 1).x4
-            track(start + i).y1 = track(start + i - 1).y4
-
-            track(start + i).x2 = track(start + i - 1).x3
-            track(start + i).y2 = track(start + i - 1).y3
-
-            track(start + i).x3 = track(start + i - 1).x3 - increment
-            track(start + i).y3 = track(start + i - 1).y3 - TRACKDEPTH
-
-            track(start + i).x4 = track(start + i - 1).x4 - increment
-            track(start + i).y4 = track(start + i - 1).y4 - TRACKDEPTH
-
-        Next
-
-        'zigin
-        For i = turn1 To turn2 - 1
-
-            track(start + i).x1 = track(start + i - 1).x4
-            track(start + i).y1 = track(start + i - 1).y4
-
-            track(start + i).x2 = track(start + i - 1).x3
-            track(start + i).y2 = track(start + i - 1).y3
-
-            track(start + i).x3 = track(start + i - 1).x3 + increment
-            track(start + i).y3 = track(start + i - 1).y3 - TRACKDEPTH
-
-            track(start + i).x4 = track(start + i - 1).x4 + increment
-            track(start + i).y4 = track(start + i - 1).y4 - TRACKDEPTH
-        Next
-
-    End Sub
-
-    Private Sub straight(ByVal start As Integer, ByVal length As Integer)
-
-        Dim i As Integer
-        For i = 0 To length - 1
-            track(start + i).x1 = track(start + i - 1).x4
-            track(start + i).y1 = track(start + i - 1).y4
-
-            track(start + i).x2 = track(start + i - 1).x3
-            track(start + i).y2 = track(start + i - 1).y3
-
-            track(start + i).x3 = track(start + i - 1).x3
-            track(start + i).y3 = track(start + i - 1).y3 - TRACKDEPTH
-
-            track(start + i).x4 = track(start + i - 1).x4
-            track(start + i).y4 = track(start + i - 1).y4 - TRACKDEPTH
-
-        Next
-
-
-
-    End Sub
-
     Private Sub initializeTrack()
         'initial block
-        track(0).x1 = -(TRACKWIDTH / 2)
-        track(0).y1 = 0
-        track(0).x2 = (TRACKWIDTH / 2)
-        track(0).y2 = 0
-        track(0).x3 = (TRACKWIDTH / 2)
-        track(0).y3 = -TRACKDEPTH
-        track(0).x4 = -(TRACKWIDTH / 2)
-        track(0).y4 = -TRACKDEPTH
+        track(0).v1.X = -(TRACKWIDTH / 2)
+        track(0).v1.Z = 0
+        track(0).v2.X = (TRACKWIDTH / 2)
+        track(0).v2.Z = 0
+        track(0).v3.X = (TRACKWIDTH / 2)
+        track(0).v3.Z = -TRACKDEPTH
+        track(0).v4.X = -(TRACKWIDTH / 2)
+        track(0).v4.Z = -TRACKDEPTH
 
-        straight(1, 5)              '1 + 5 = 6
-        leftZig(6, 15, 50)           '6 + 15 = 21
-        straight(21, 5)            '21  + 5 = 26
-        rightZig(26, 15, 50)        '26 + 15 = 41
-        straight(41, 5)             '41 + 5 = 46
-        rightWidget(46, 20)         '46 + 20 = 66       'must be divisible by 5
-        straight(66, 5)             '66 + 5 = 71
-        leftZig(71, 10, 75)         '71+10 = 81
-        straight(81, 5)             '81+5 = 86
-        rightZig(86, 10, 75)        '86+10 =96
-        straight(96, 5)             '96+5 = 101
-        leftWidget(101, 20)         '101 + 20 = 121
-        straight(121, 5)              '121 + 5 = 126
-        leftZig(126, 15, 50)          '126 + 15 = 141
-        straight(141, 5)            '141  + 5 = 146
-        rightZig(146, 15, 50)        '146 + 15 = 161
-        straight(161, 5)             '161 + 5 = 166
-        rightWidget(166, 20)         '166 + 20 = 186       'must be divisible by 5
-        straight(186, 5)             '186 + 5 = 191
-        leftZig(191, 10, 75)         '191+10 = 201
-        straight(201, 5)             '201+5 = 206
-        rightZig(206, 10, 75)        '206+10 =216
-        straight(216, 5)             '216+5 = 221
-        leftWidget(221, 20)         '221 + 20 = 241
+        Dim offset = 0
+        Select Case difficulty
+            Case 1 'easy
+                offset = 0
+            Case 2 'medium
+                offset = 20
+            Case 3 'hard
+                offset = 40
+        End Select
+        For i As Integer = 0 To TRACKPOINTS - 2
+            layTrack(i, Rand(-offset, offset))
+        Next
+    End Sub
 
-        straight(241, 5)              '1 + 5 = 6
-        leftZig(246, 15, 50)           '6 + 15 = 21
-        straight(261, 5)            '21  + 5 = 26
-        rightZig(266, 15, 50)        '26 + 15 = 41
-        straight(281, 5)             '41 + 5 = 46
-        rightWidget(286, 20)         '46 + 20 = 66       'must be divisible by 5
-        straight(306, 5)             '66 + 5 = 71
-        leftZig(311, 10, 75)         '71+10 = 81
-        straight(321, 5)             '81+5 = 86
-        rightZig(326, 10, 75)        '86+10 =96
-        straight(336, 5)             '96+5 = 101
-        leftWidget(341, 20)         '101 + 20 = 121
-        straight(361, 5)              '121 + 5 = 126
-        leftZig(366, 15, 50)          '126 + 15 = 141
-        straight(381, 5)            '141  + 5 = 146
-        rightZig(386, 15, 50)        '146 + 15 = 161
-        straight(401, 5)             '161 + 5 = 166
-        rightWidget(406, 20)         '166 + 20 = 186       'must be divisible by 5
-        straight(426, 5)             '186 + 5 = 191
-        leftZig(431, 10, 75)         '191+10 = 201
-        straight(441, 5)             '201+5 = 206
-        rightZig(446, 10, 75)        '206+10 =216
-        straight(456, 5)             '216+5 = 221
-        leftWidget(461, 20)         '221 + 20 = 241
+    Private Sub layTrack(index As Integer, angle As Single)
+        With track(index)
+            Dim vector = .v4 - .v3
+            Dim magnitude = vector.Length
+            Dim normal = OpenTK.Vector3.Normalize(vector)
+            Dim origin = .v3 + normal * magnitude / 2.0F
+
+            vector = .v2 - .v1
+            normal = OpenTK.Vector3.Normalize(vector)
+            Dim mid = .v2 - normal * magnitude / 2.0F
+
+            Dim W = mid.X - origin.X
+            Dim H = mid.Z - origin.Z
+            Dim R = -Math.Atan2(W, H) * RtoD + angle
+            If Math.Abs(R) > 90 Then R = 90 * Math.Sign(R)
+            Dim nr = (R - 90) * DtoR
+            Dim cr = (R) * DtoR
+            Dim n = New OpenTK.Vector3(Math.Cos(nr), 0, Math.Sin(nr)) 'the angle of current track from the middle
+            Dim cn = New OpenTK.Vector3(Math.Cos(cr), 0, Math.Sin(cr)) 'the perpendicular vector
+
+            'copy vertexes of the last track
+            track(index + 1).v1 = .v4
+            track(index + 1).v2 = .v3
+
+            'move up the middle at the angle, and move out perpendicularly for track width
+            track(index + 1).v3 = origin + n * TRACKDEPTH + cn * TRACKWIDTH / 2
+            track(index + 1).v4 = origin + n * TRACKDEPTH - cn * TRACKWIDTH / 2
+        End With
     End Sub
 
     Private Sub initializeZones()
         For i As Integer = 0 To TRACKPOINTS
-            Dim vector = New PointF(track(i).x2 - track(i).x1, track(i).y2 - track(i).y1)
-            Dim magnitude = Math.Sqrt(Math.Pow(vector.X, 2) + Math.Pow(vector.Y, 2))
-            Dim normal = New PointF(vector.X / magnitude, vector.Y / magnitude)
+            Dim vector = track(i).v2 - track(i).v1
+            Dim magnitude = vector.Length
+            Dim normal = OpenTK.Vector3.Normalize(vector)
 
-            zone(i).x1 = track(i).x1 + normal.X * magnitude / 2
-            zone(i).y1 = track(i).y1 + normal.Y * magnitude / 2
-            zone(i).x2 = track(i).x2
-            zone(i).y2 = track(i).y2
+            Dim mp = (magnitude / 2)
 
-            vector = New PointF(track(i).x4 - track(i).x3, track(i).y4 - track(i).y3)
-            magnitude = Math.Sqrt(Math.Pow(vector.X, 2) + Math.Pow(vector.Y, 2))
-            normal = New PointF(vector.X / magnitude, vector.Y / magnitude)
+            zoneTrack(i).v1 = track(i).v1 - normal * ZONEOFFSET
+            zoneTrack(i).v2 = track(i).v2 + normal * ZONEOFFSET
 
-            zone(i).x3 = track(i).x3
-            zone(i).y3 = track(i).y3
-            zone(i).x4 = track(i).x4 - normal.X * magnitude / 2
-            zone(i).y4 = track(i).y4 - normal.Y * magnitude / 2
+            zoneStrict(i).v1 = track(i).v1 + normal * mp
+            zoneStrict(i).v2 = track(i).v2
+
+            zoneFuzzy(i).v1 = track(i).v1 + normal * (mp - ZONEOFFSET)
+            zoneFuzzy(i).v2 = track(i).v2 + normal * (ZONEOFFSET)
+
+            vector = track(i).v4 - track(i).v3
+            magnitude = vector.Length
+            normal = OpenTK.Vector3.Normalize(vector)
+
+            mp = (magnitude / 2)
+
+            zoneTrack(i).v3 = track(i).v3 - normal * ZONEOFFSET
+            zoneTrack(i).v4 = track(i).v4 + normal * ZONEOFFSET
+
+            zoneStrict(i).v3 = track(i).v3
+            zoneStrict(i).v4 = track(i).v4 - normal * mp
+
+            zoneFuzzy(i).v3 = track(i).v3 - normal * (ZONEOFFSET)
+            zoneFuzzy(i).v4 = track(i).v4 - normal * (mp - ZONEOFFSET)
         Next
     End Sub
 
@@ -658,17 +298,14 @@ Public Class clsGameDrive
 
         For i = 0 To TRACKPOINTS
             If i >= OBJECTSTART AndAlso i Mod OBJECTINTERVAL = 0 Then
-                Dim n = New OpenTK.Vector2(track(i).x1 - track(i).x2, track(i).y1 - track(i).y2)
-                n.NormalizeFast()
+                Dim n = (track(i).v1 - track(i).v2)
+                n.Normalize()
 
-                Dim o = New GameObject()
-
+                Dim o As GameObject
                 If Rand(0, 1) = 1 Then
-                    o.position.X = OBJECTDISTANCE * n.X + track(i).x1
-                    o.position.Z = OBJECTDISTANCE * n.Y + track(i).y1
+                    o.position = OBJECTDISTANCE * n + track(i).v1
                 Else
-                    o.position.X = -OBJECTDISTANCE * n.X + track(i).x2
-                    o.position.Z = -OBJECTDISTANCE * n.Y + track(i).y2
+                    o.position = -OBJECTDISTANCE * n + track(i).v2
                 End If
 
                 lst.Add(o)
@@ -766,7 +403,7 @@ Public Class clsGameDrive
             Case 0
                 GL.BindTexture(TextureTarget.Texture2D, MyTexture(6))
             Case 1
-                GL.BindTexture(TextureTarget.Texture2D, MyTexture(26))
+                GL.BindTexture(TextureTarget.Texture2D, MyTexture(18))
         End Select
 
         GL.Begin(BeginMode.QuadStrip)
@@ -796,7 +433,7 @@ Public Class clsGameDrive
             Case 0
                 GL.BindTexture(TextureTarget.Texture2D, MyTexture(2))
             Case 1
-                GL.BindTexture(TextureTarget.Texture2D, MyTexture(25))
+                GL.BindTexture(TextureTarget.Texture2D, MyTexture(17))
         End Select
 
         GL.Begin(BeginMode.Quads)
@@ -879,6 +516,7 @@ Public Class clsGameDrive
 
     Private Sub drawDash()
         Static cameraShakeStage As Single = 0
+        Static glow As Single = 0
 
         Dim dashWidth As Single = 25
         Dim dashHeight As Single = dashWidth / (1366 / 768)
@@ -887,19 +525,18 @@ Public Class clsGameDrive
         GL.PushMatrix()
         GL.LoadIdentity()
 
-        If isOnTrack = False Then
-            GL.Translate(0, Math.Sin(cameraShakeStage) * 0.25, 0)
-            cameraShakeStage += 0.6F
+        If isOnTrack = False AndAlso Not towing Then
+            GL.Translate(0, Math.Sin(cameraShakeStage) * SHAKEINTENSITY, 0)
+            cameraShakeStage += SHAKESPEED
         Else
             cameraShakeStage = 0
         End If
 
         GL.Enable(EnableCap.Texture2D)
-        GL.Disable(EnableCap.Blend)
         GL.Enable(EnableCap.Blend)
         GL.Disable(EnableCap.DepthTest)
-        GL.BlendFunc(BlendingFactorSrc.DstColor, BlendingFactorDest.Zero)
 
+        GL.BlendFunc(BlendingFactorSrc.DstColor, BlendingFactorDest.Zero)
         GL.BindTexture(TextureTarget.Texture2D, MyTexture(5))
         GL.Begin(BeginMode.Quads)
         GL.Color3(255.0, 255.0, 255.0)
@@ -914,10 +551,9 @@ Public Class clsGameDrive
         GL.End()
 
         GL.BlendFunc(BlendingFactorSrc.One, BlendingFactorDest.One)
-
+        GL.Color3(255.0, 255.0, 255.0)
         GL.BindTexture(TextureTarget.Texture2D, MyTexture(5))
         GL.Begin(BeginMode.Quads)
-        GL.Color3(255.0, 255.0, 255.0)
         GL.TexCoord2(0, 0)
         GL.Vertex3(-dashWidth + 8, dashHeight - 2, -10)
         GL.TexCoord2(1, 0)
@@ -928,7 +564,58 @@ Public Class clsGameDrive
         GL.Vertex3(-dashWidth + 8, -dashHeight - 2, -10)
         GL.End()
 
-        drawButton(currentDistraction)
+        Dim w As Single = 0.8F
+        Dim h As Single = 0.88F
+        Dim x As Single = -0.02F
+        Dim y As Single = -0.4F
+        GL.BlendFunc(BlendingFactorSrc.DstColor, BlendingFactorDest.Zero)
+        GL.BindTexture(TextureTarget.Texture2D, MyTexture(26))
+        GL.Color3(255.0, 255.0, 255.0)
+        GL.Begin(BeginMode.Quads)
+        GL.TexCoord2(0.01, 0.01)
+        GL.Vertex3(-w + x, h + y, -10)
+        GL.TexCoord2(0.99, 0.01)
+        GL.Vertex3(w + x, h + y, -10)
+        GL.TexCoord2(0.99, 0.49)
+        GL.Vertex3(w + x, -h + y, -10)
+        GL.TexCoord2(0.01, 0.49)
+        GL.Vertex3(-w + x, -h + y, -10)
+        GL.End()
+
+        Dim color = WHITECOLOR
+        If buttonPressed Then
+            glow += 0.2F
+            Dim effect = 0.3F
+            If wrongButton Then
+                color = FEEDBACKNEGATIVECOLOR
+            Else
+                color = FEEDBACKPOSITIVECOLOR
+            End If
+            color += Math.Sin(glow) * effect * New OpenTK.Vector3(1, 1, 1)
+
+            If endFeedback < Now Then
+                buttonPressed = False
+                wrongButton = False
+            End If
+        Else
+            glow = 0
+        End If
+
+        GL.BlendFunc(BlendingFactorSrc.One, BlendingFactorDest.One)
+        GL.BindTexture(TextureTarget.Texture2D, MyTexture(26))
+        GL.Color3(color)
+        GL.Begin(BeginMode.Quads)
+        GL.TexCoord2(0.01, 0.51)
+        GL.Vertex3(-w + x, h + y, -10)
+        GL.TexCoord2(0.99, 0.51)
+        GL.Vertex3(w + x, h + y, -10)
+        GL.TexCoord2(0.99, 0.99)
+        GL.Vertex3(w + x, -h + y, -10)
+        GL.TexCoord2(0.01, 0.99)
+        GL.Vertex3(-w + x, -h + y, -10)
+        GL.End()
+
+        If nextDistraction < Now AndAlso Now < endDistraction Then drawButton()
 
         GL.Enable(EnableCap.DepthTest)
         GL.Disable(EnableCap.Blend)
@@ -946,21 +633,20 @@ Public Class clsGameDrive
         GL.Enable(EnableCap.Texture2D)
 
         Dim i As Integer = 0
-        Dim j As Integer
-        GL.BindTexture(TextureTarget.Texture2D, MyTexture(3))
+        GL.BindTexture(TextureTarget.Texture2D, MyTexture(If(bumpers, 25, 3)))
+        GL.Begin(BeginMode.Quads)
         For i = TRACKPOINTS To 0 Step -1
-            GL.Begin(BeginMode.Quads)
             GL.Color3(255.0, 255.0, 255.0)
             GL.TexCoord2(0, 0)
-            GL.Vertex3(track(i).x1, 0, track(i).y1)
+            GL.Vertex3(track(i).v1)
             GL.TexCoord2(1, 0)
-            GL.Vertex3(track(i).x2, 0, track(i).y2)
+            GL.Vertex3(track(i).v2)
             GL.TexCoord2(1, 1)
-            GL.Vertex3(track(i).x3, 0, track(i).y3)
+            GL.Vertex3(track(i).v3)
             GL.TexCoord2(0, 1)
-            GL.Vertex3(track(i).x4, 0, track(i).y4)
-            GL.End()
+            GL.Vertex3(track(i).v4)
         Next
+        GL.End()
 
         For Each obj In objects
             drawObject(obj)
@@ -970,14 +656,14 @@ Public Class clsGameDrive
         GL.PopAttrib()
     End Sub
 
-    Private Sub drawButton(color As Long)
-        Dim x As Single = -0.25F
-        Dim y As Single = -3.75F
-        Dim w As Integer = 1
+    Private Sub drawButton()
+        Dim x As Single = 0F
+        Dim y As Single = 6.75F
+        Dim w As Single = BUTTONSIZE
 
         GL.BlendFunc(BlendingFactorSrc.DstColor, BlendingFactorDest.Zero)
         GL.Color3(255.0F, 255.0F, 255.0F)
-        GL.BindTexture(TextureTarget.Texture2D, MyTexture(24))
+        GL.BindTexture(TextureTarget.Texture2D, MyTexture(DISTRACTIONTEXTUREINDEX(currentDistractionShape)))
         GL.Begin(BeginMode.Quads)
         GL.TexCoord2(0, 0)
         GL.Vertex3(-w + x, w + y, -10)
@@ -990,8 +676,9 @@ Public Class clsGameDrive
         GL.End()
 
         GL.BlendFunc(BlendingFactorSrc.One, BlendingFactorDest.One)
-        GL.Color3(255.0F, 255.0F, 255.0F)
-        GL.BindTexture(TextureTarget.Texture2D, MyTexture(24 - color))
+
+        GL.BindTexture(TextureTarget.Texture2D, MyTexture(DISTRACTIONTEXTUREINDEX(currentDistractionShape) - 1))
+        GL.Color3(DISTRACTIONCOLORS(currentDistractionColor))
         GL.Begin(BeginMode.Quads)
         GL.TexCoord2(0, 0)
         GL.Vertex3(-w + x, w + y, -10)
@@ -1005,80 +692,87 @@ Public Class clsGameDrive
     End Sub
 
     Private Sub drawObject(obj As GameObject)
-        If obj IsNot Nothing Then
-            Dim size As Single = 50
+        Dim size As Single = 50
 
-            GL.PushAttrib(AttribMask.AllAttribBits)
-            GL.PushMatrix()
+        GL.PushAttrib(AttribMask.AllAttribBits)
+        GL.PushMatrix()
 
-            Dim r = Math.Atan2(-cameraPositionX - obj.position.X, -cameraPositionZ - obj.position.Z)
+        Dim r = Math.Atan2(-cameraPositionX - obj.position.X, -cameraPositionZ - obj.position.Z)
 
-            GL.Translate(obj.position.X, 0, obj.position.Z)
-            GL.Rotate(r * 180 / Math.PI, 0, 1, 0)
+        GL.Translate(obj.position)
+        GL.Rotate(r * RtoD, 0, 1, 0)
 
-            GL.Enable(EnableCap.Texture2D)
-            GL.Disable(EnableCap.Blend)
-            GL.Enable(EnableCap.Blend)
-            GL.Disable(EnableCap.DepthTest)
-            GL.BlendFunc(BlendingFactorSrc.DstColor, BlendingFactorDest.Zero)
+        GL.Enable(EnableCap.Texture2D)
+        GL.Disable(EnableCap.Blend)
+        GL.Enable(EnableCap.Blend)
+        GL.Disable(EnableCap.DepthTest)
+        GL.BlendFunc(BlendingFactorSrc.DstColor, BlendingFactorDest.Zero)
 
-            GL.Color3(255.0F, 255.0F, 255.0F)
-            GL.BindTexture(TextureTarget.Texture2D, MyTexture(19))
-            GL.Begin(BeginMode.Quads)
-            GL.TexCoord2(0, 1)
-            GL.Vertex3(size, 0, 0)
-            GL.TexCoord2(1, 1)
-            GL.Vertex3(-size, 0, 0)
-            GL.TexCoord2(1, 0)
-            GL.Vertex3(-size, 2 * size, 0)
-            GL.TexCoord2(0, 0)
-            GL.Vertex3(size, 2 * size, 0)
-            GL.End()
+        GL.Color3(255.0F, 255.0F, 255.0F)
+        GL.BindTexture(TextureTarget.Texture2D, MyTexture(16))
+        GL.Begin(BeginMode.Quads)
+        GL.TexCoord2(0, 1)
+        GL.Vertex3(size, 0, 0)
+        GL.TexCoord2(1, 1)
+        GL.Vertex3(-size, 0, 0)
+        GL.TexCoord2(1, 0)
+        GL.Vertex3(-size, 2 * size, 0)
+        GL.TexCoord2(0, 0)
+        GL.Vertex3(size, 2 * size, 0)
+        GL.End()
 
-            GL.BlendFunc(BlendingFactorSrc.One, BlendingFactorDest.One)
+        GL.BlendFunc(BlendingFactorSrc.One, BlendingFactorDest.One)
 
-            GL.Color3(255.0F, 255.0F, 255.0F)
-            GL.BindTexture(TextureTarget.Texture2D, MyTexture(19 - 1))
-            GL.Begin(BeginMode.Quads)
-            GL.TexCoord2(0, 1)
-            GL.Vertex3(size, 0, 0)
-            GL.TexCoord2(1, 1)
-            GL.Vertex3(-size, 0, 0)
-            GL.TexCoord2(1, 0)
-            GL.Vertex3(-size, 2 * size, 0)
-            GL.TexCoord2(0, 0)
-            GL.Vertex3(size, 2 * size, 0)
-            GL.End()
+        GL.Color3(255.0F, 255.0F, 255.0F)
+        GL.BindTexture(TextureTarget.Texture2D, MyTexture(15))
+        GL.Begin(BeginMode.Quads)
+        GL.TexCoord2(0, 1)
+        GL.Vertex3(size, 0, 0)
+        GL.TexCoord2(1, 1)
+        GL.Vertex3(-size, 0, 0)
+        GL.TexCoord2(1, 0)
+        GL.Vertex3(-size, 2 * size, 0)
+        GL.TexCoord2(0, 0)
+        GL.Vertex3(size, 2 * size, 0)
+        GL.End()
 
-            GL.Enable(EnableCap.DepthTest)
-            GL.Disable(EnableCap.Blend)
-            GL.Disable(EnableCap.Texture2D)
+        GL.Enable(EnableCap.DepthTest)
+        GL.Disable(EnableCap.Blend)
+        GL.Disable(EnableCap.Texture2D)
 
-            GL.PopMatrix()
-            GL.PopAttrib()
-        End If
+        GL.PopMatrix()
+        GL.PopAttrib()
     End Sub
 
+    Private Sub drawDashboard()
+        drawTextAt("Total Distractors: " & totalDistractors, 255, 255, 255, 255, 50, 100, fontSizes.size_36, fontType.arial)
+        drawTextAt("Total Correct Distractors: " & totalCorrectDistractors, 255, 255, 255, 255, 50, 140, fontSizes.size_36, fontType.arial)
+        drawTextAt("Total Incorrect Distractors: " & totalIncorrectDistractors, 255, 255, 255, 255, 50, 180, fontSizes.size_36, fontType.arial)
+        drawTextAt("Correct Press: " & correctDistractors, 255, 255, 255, 255, 50, 220, fontSizes.size_36, fontType.arial)
+        drawTextAt("Incorrect Press: " & incorrectDistractors, 255, 255, 255, 255, 50, 260, fontSizes.size_36, fontType.arial)
+        drawTextAt("Correct Percent: " & (correctDistractors / totalCorrectDistractors).ToString("p"), 255, 255, 255, 255, 50, 300, fontSizes.size_36, fontType.arial)
+        drawTextAt("Inorrect Percent: " & (incorrectDistractors / totalIncorrectDistractors).ToString("p"), 255, 255, 255, 255, 50, 340, fontSizes.size_36, fontType.arial)
+    End Sub
 #End Region
 
 #Region "Game state checking"
 
-    Private Function calcSide(x As Single, y As Single, y0 As Single, y1 As Single, x0 As Single, x1 As Single) As Single
-        Return (y - y0) * (x1 - x0) - (x - x0) * (y1 - y0)
+    Private Function calcSide(x As Single, y As Single, v0 As OpenTK.Vector3, v1 As OpenTK.Vector3) As Single
+        Return (y - v0.Z) * (v1.X - v0.X) - (x - v0.X) * (v1.Z - v0.Z)
     End Function
 
     Private Function isPointInQuad(x As Single, y As Single, tile As TrackTile) As Boolean
         'calculate which side of the line 1 the camera is on
-        Dim side1 As Single = calcSide(x, y, tile.y1, tile.y2, tile.x1, tile.x2)
+        Dim side1 As Single = calcSide(x, y, tile.v1, tile.v2)
 
         'calculate which side of the line 2 the camera is on
-        Dim side2 As Single = calcSide(x, y, tile.y2, tile.y3, tile.x2, tile.x3)
+        Dim side2 As Single = calcSide(x, y, tile.v2, tile.v3)
 
         'calculate which side of the line 3 the camera is on
-        Dim side3 As Single = calcSide(x, y, tile.y3, tile.y4, tile.x3, tile.x4)
+        Dim side3 As Single = calcSide(x, y, tile.v3, tile.v4)
 
         'calculate which side of the line 4 the camera is on
-        Dim side4 As Single = calcSide(x, y, tile.y4, tile.y1, tile.x4, tile.x1)
+        Dim side4 As Single = calcSide(x, y, tile.v4, tile.v1)
 
         'if all sides are of the same magnitude, the the point is on the interior of the polygon
         If (side1 <= 0 AndAlso side2 <= 0 AndAlso side3 <= 0 AndAlso side4 <= 0) OrElse (side1 >= 0 AndAlso side2 >= 0 AndAlso side3 >= 0 AndAlso side4 >= 0) Then
@@ -1102,6 +796,7 @@ Public Class clsGameDrive
 
         isInZone = False
         isOnTrack = False
+        isInHalfZone = False
 
         For i = 0 To TRACKPOINTS
             '       (4 - x4y4)                         (3 - x3y3)
@@ -1116,19 +811,26 @@ Public Class clsGameDrive
             '       |                                           |
             '       |_____________________1_____________________|
             '       (1 - x1y1)                         (2 - x2y2)
-            If isPointInQuad(-cameraPositionX, -cameraPositionZ, track(i)) Then
+            If isPointInQuad(-cameraPositionX, -cameraPositionZ, zoneTrack(i)) Then
                 isOnTrack = True
+                lastZoneTime = DateTime.Now
                 speed = ORIGINALSPEED
                 currentTrackTileID = i
 
-                If isPointInQuad(-cameraPositionX, -cameraPositionZ, zone(i)) Then
+                If isPointInQuad(-cameraPositionX, -cameraPositionZ, zoneStrict(i)) Then
                     isInZone = True
+                ElseIf isPointInQuad(-cameraPositionX, -cameraPositionZ, zoneFuzzy(i)) Then
+                    isInHalfZone = True
+                    nextScoreAmount = MED_SCORE
+                Else
+                    nextScoreAmount = LOW_SCORE
                 End If
 
                 Exit Sub
             End If
         Next
 
+        nextScoreAmount = 0
         'speed = 0.5 * ORIGINALSPEED
 
         'if the car is 90 to 270, then it's going backwards.  adjust speed accordingly  at 180, it takes 1 second
@@ -1141,44 +843,54 @@ Public Class clsGameDrive
         Else
             ss = (90 - cameraRotation) / 90
         End If
-        currentTrackTileID = currentTrackTileID + (ss * 0.03)
+        'currentTrackTileID = currentTrackTileID + (ss * 0.03)
     End Sub
 
     Private Sub checkScoring()
         If nextScore < DateTime.Now Then 'if current time to check score has passed
-            If isInZone Then 'if in zone then add point
-                score += 1
-            ElseIf score > 0 Then 'else remove point
-                score -= 1
-            End If
+            score += nextScoreAmount 'add next score
 
+            nextScoreAmount = HIGH_SCORE 'reset next score
             'set time to check score to 1 second from now
-            nextScore = DateTime.Now.AddSeconds(1)
+            nextScore = DateTime.Now.AddSeconds(SCOREINTERVAL)
         End If
     End Sub
 
     Private Sub checkDistractions()
-        If nextDistraction < DateTime.Now Then 'if current time has passed time for next distraction
-            setNextDistraction()
+        If endDistraction < DateTime.Now AndAlso nextDistraction < DateTime.Now Then 'else if current time is pass the end of a distraction
+            If endDistraction < nextDistraction Then  'else if current time is pass the end of a distraction
+                setEndDistraction()
+                totalDistractors += 1
 
-            'set current distraction to random distraction
-            currentDistraction = Rand(2, 4)
-        ElseIf endDistraction < DateTime.Now Then 'else if current time is pass the end of a distraction
-            'reset current distraction
-            currentDistraction = 1
+                'set current distraction to random distraction
+                If Rand(0, 100) < 50 Then
+                    totalCorrectDistractors += 1
+                    currentDistractionShape = 0
+                Else
+                    totalIncorrectDistractors += 1
+                    currentDistractionShape = Math.Min(2, Rand(1, 3))
+                End If
+            Else 'if current time has passed time for next distraction
+                setNextDistraction()
+            End If
         End If
     End Sub
 
     Private Sub checkOffTrack()
-        With track(currentTrackTileID + 1)
+        With track(currentTrackTileID)
             'get midpoint of next track
-            Dim X1 = Math.Round((.x1 + .x2 + .x3 + .x4) / 4)
-            Dim Y1 = Math.Round((.y1 + .y2 + .y3 + .y4) / 4)
+            Dim mp = ((.v1 + .v2 + .v3 + .v4) / 4)
 
             'find rotation between camera and next track
-            Dim W = -cameraPositionX - X1
-            Dim H = -cameraPositionZ - Y1
+            Dim W = -cameraPositionX - mp.X
+            Dim H = -cameraPositionZ - mp.Z
             Dim R = -Math.Round(Math.Atan2(W, H) * 180 / Math.PI)
+
+            'line with track
+            'Dim W = .x1 - .x4
+            'Dim H = .y1 - .y4
+            'Dim R = -Math.Round(Math.Atan2(W, H) * 180 / Math.PI)
+
             If R < 0 Then R += 360
             If R > 360 Then R -= 360
 
@@ -1189,10 +901,63 @@ Public Class clsGameDrive
             If d > 180 Then d -= 360
 
             'if car is not on track, rotate to target
-            If Not isOnTrack AndAlso Math.Abs(d) > 1 Then cameraRotation += Math.Max(Math.Abs(d) * rotationSpeed, 1) * Math.Sign(d)
+            If Not isOnTrack AndAlso Math.Abs(d) > 1 AndAlso bumpers Then cameraRotation += Math.Max(Math.Abs(d) * BUMPERSPEED, 1) * Math.Sign(d)
         End With
     End Sub
 
+    Private Sub checkTowTruck()
+        If (DateTime.Now - lastZoneTime).TotalSeconds > TOWCHECK Then 'if its been TOWCHECK amount of seconds since the last time it was in a zone
+            towing = True
+
+            endDistraction = Now
+            setNextDistraction(TOWDURATION)
+
+            towStart = DateTime.Now
+            towPosition.X = cameraPositionX 'set start position to current camera position
+            towPosition.Y = 0
+            towPosition.Z = cameraPositionZ
+
+            With track(currentTrackTileID) 'set target position to 25% of track width of current track
+                Dim v = .v1 - .v2
+                Dim m = v.Length
+                v.Normalize()
+
+                towTarget = .v2 + v * m * 0.25F
+
+                v = .v2 - .v3
+                v.Normalize()
+                Dim a = -Math.Atan2(v.X, v.Z) * RtoD
+
+                towPosition.Y = cameraRotation
+                towTarget *= -1
+
+                If Math.Abs(cameraRotation - (a + 360)) < Math.Abs(cameraRotation - a) Then 'choose the smallest angle to rotate from
+                    towTarget.Y = a + 360
+                Else
+                    towTarget.Y = a
+                End If
+            End With
+        End If
+    End Sub
+
+    Private Sub scoreDistraction()
+        If totalTime <= (initialDuration - 3) AndAlso Not buttonPressed Then
+            buttonPressed = True
+            endFeedback = Now.AddSeconds(FEEDBACKDURATION)
+
+            If nextDistraction < Now AndAlso Now < endDistraction Then
+                endDistraction = endFeedback
+                If currentDistractionShape = 0 Then
+                    correctDistractors += 1
+                Else
+                    incorrectDistractors += 1
+                    wrongButton = True
+                End If
+            Else
+                wrongButton = True
+            End If
+        End If
+    End Sub
 #End Region
 
 #Region "Movement"
@@ -1215,10 +980,11 @@ Public Class clsGameDrive
 
     Private Sub setNextDistraction(Optional offset As Integer = 0)
         'set time to end distraction and set new time for next distraction
-        endDistraction = DateTime.Now.AddMilliseconds(distractionHangTimes(Rand(0, distractionHangTimes.Length - 1)))
-        nextDistraction = endDistraction.AddSeconds(offset + Rand(minDistractionInterval, maxDistractionInterval))
+        nextDistraction = DateTime.Now.AddSeconds(offset + Rand(DISTRACTIONINTERVAL_MIN, DISTRACTIONINVERVAL_MAX))
     End Sub
-
+    Private Sub setEndDistraction()
+        endDistraction = DateTime.Now.AddMilliseconds(DISTRACTIONDURATION_ARRAY(Rand(0, DISTRACTIONDURATION_ARRAY.Length - 1)))
+    End Sub
     '**************************************************************************************************
     ' This function handles the issue of resizing the OpenGL display with the proper perspective.
     '**************************************************************************************************
@@ -1272,46 +1038,67 @@ Public Class clsGameDrive
 
         If started = True Then
             If completed = False Then
-                inputMethods.getInput(currentInputMethod, reps)
-                checkPosition()
-                checkDistractions()
-                checkOffTrack()
-                checkScoring()
+                If ending = False Then
+                    inputMethods.getInput(currentInputMethod, reps)
+                    checkPosition()
+                    checkDistractions()
+                    checkOffTrack()
 
-                drawMountains()
-                drawSkyCylinder()
+                    drawMountains()
+                    drawSkyCylinder()
 
-                GL.Rotate(cameraRotation, 0, 1, 0)
-                GL.Translate(cameraPositionX, -10, cameraPositionZ)
+                    GL.Rotate(cameraRotation, 0, 1, 0)
+                    GL.Translate(cameraPositionX, -10, cameraPositionZ)
 
-                drawTerrain()
-                drawRaceTrack()
-                drawDash()
+                    drawTerrain()
+                    drawRaceTrack()
+                    drawDash()
 
-                If totalTime > (initialDuration - 3) Then
-                    If totalTime = (initialDuration - 3) And countDownNumbers(0) = False Then
-                        countDownNumbers(0) = True
-                        decrementCountdown()
-                    ElseIf totalTime = (initialDuration - 2) And countDownNumbers(1) = False Then
-                        countDownNumbers(1) = True
-                        decrementCountdown()
-                    ElseIf totalTime = (initialDuration - 1) And countDownNumbers(2) = False Then
-                        countDownNumbers(2) = True
-                        decrementCountdown()
+                    If totalTime > (initialDuration - 3) Then
+                        If totalTime = (initialDuration - 3) And countDownNumbers(0) = False Then
+                            countDownNumbers(0) = True
+                            decrementCountdown()
+                        ElseIf totalTime = (initialDuration - 2) And countDownNumbers(1) = False Then
+                            countDownNumbers(1) = True
+                            decrementCountdown()
+                        ElseIf totalTime = (initialDuration - 1) And countDownNumbers(2) = False Then
+                            countDownNumbers(2) = True
+                            decrementCountdown()
+                        End If
+                        drawCountDown()
+                        drawScoreAndTime(score, initialDuration, 200, 0, 0, fontSizes.size_36, 255)
+                    ElseIf totalTime <= 0 Then
+                        ending = True
+                    ElseIf towing Then 'if towing
+                        Dim elapsed = (DateTime.Now - towStart).TotalSeconds 'get how long its been towing
+                        Dim n = OpenTK.Vector3.Lerp(towPosition, towTarget, Math.Min(1.0F, elapsed / TOWDURATION)) 'linearly interpolate between start positiong and target
+
+                        cameraPositionX = n.X 'move camera
+                        cameraPositionZ = n.Z
+                        cameraRotation = n.Y
+
+                        'if duartion finished stop towing
+                        If elapsed > TOWDURATION Then
+                            towing = False
+                            lastZoneTime = DateTime.Now
+                            nextScore = DateTime.Now.AddSeconds(SCOREINTERVAL)
+                        End If
+                        drawScoreAndTime(score, totalTime, 200, 0, 0, fontSizes.size_36, 255)
+                    Else
+                        Dim carRotation As Single = GlobalCurrentX
+                        checkTowTruck()
+
+                        MoveLeftRight((speed * (carRotation) * 2) - (speed))
+                        MoveForward()
+                        checkScoring()
+                        drawScoreAndTime(score, totalTime, 200, 0, 0, fontSizes.size_36, 255)
                     End If
-                    drawCountDown()
-                ElseIf totalTime <= 0 Then
-                    exitGame()
-                    Exit Sub
+
+                    'debugging messages
+                    decrementTimeCheckMyo(currentInputMethod)
                 Else
-                    Dim carRotation As Single = GlobalCurrentX
-
-                    MoveLeftRight((speed * (carRotation) * 2) - (speed))
-                    MoveForward()
+                    drawDashboard()
                 End If
-
-                drawScoreAndTime(score, initialDuration, 200, 0, 0, fontSizes.size_36, 255)
-                decrementTimeCheckMyo(currentInputMethod)
             End If
         Else
             drawTextAt(prompt, 255, 255, 255, 255, 20, 20, fontSizes.size_36, fontType.arial)
@@ -1322,6 +1109,8 @@ Public Class clsGameDrive
     Public Overrides Sub handleKeyPress(ByVal sender As Object, ByVal e As OpenTK.KeyPressEventArgs)
         If e.KeyChar = " " Then
             start()
+            scoreDistraction()
+            If ending Then exitGame()
         ElseIf e.KeyChar = ""c Then
             exitGame()
         End If
@@ -1332,7 +1121,6 @@ Public Class clsGameDrive
     End Sub
 
     Public Overrides Sub initialize()
-
         Static texturesLoaded As Boolean = False
         If texturesLoaded = False Then
             texturesLoaded = True
@@ -1359,7 +1147,6 @@ Public Class clsGameDrive
         cameraPositionX = -25
         cameraRotation = 0
 
-
         speed = ORIGINALSPEED
         countDownNumber = 10
         countDown = True
@@ -1368,8 +1155,14 @@ Public Class clsGameDrive
         started = False
         completed = False
 
-        map = Rand(0, 1)
+        'TODO: set options here!
+        map = 0
+        currentDistractionColor = (Rand(0, 100) Mod DISTRACTIONCOLORS.Length)
+        bumpers = False
+        tow = True
 
+        'set an endtime for distractions in the past so game doesnt show distraction right away
+        endDistraction = DateTime.Now.AddSeconds(-1)
         setNextDistraction(3)
     End Sub
 
@@ -1394,18 +1187,18 @@ Public Class clsGameDrive
         textureNames(12) = startUpPath & "\texture\drive\CountDown2Mask.jpg"
         textureNames(13) = startUpPath & "\texture\drive\CountDown1.jpg"
         textureNames(14) = startUpPath & "\texture\drive\CountDown1Mask.jpg"
-        textureNames(15) = startUpPath & "\texture\drive\_0004_blueBillboard.jpg"
-        textureNames(16) = startUpPath & "\texture\drive\_0001_greenBillboard.jpg"
-        textureNames(17) = startUpPath & "\texture\drive\_0002_redBillboard.jpg"
-        textureNames(18) = startUpPath & "\texture\drive\_0003_whiteBillboard.jpg"
-        textureNames(19) = startUpPath & "\texture\drive\_0000_maskBillboard.jpg"
-        textureNames(20) = startUpPath & "\texture\drive\blueButton.jpg"
-        textureNames(21) = startUpPath & "\texture\drive\greenButton.jpg"
-        textureNames(22) = startUpPath & "\texture\drive\redButton.jpg"
-        textureNames(23) = startUpPath & "\texture\drive\whiteButton.jpg"
-        textureNames(24) = startUpPath & "\texture\drive\maskButton.jpg"
-        textureNames(25) = startUpPath & "\texture\drive\sand.jpg"
-        textureNames(26) = startUpPath & "\texture\drive\beach.jpg"
+        textureNames(15) = startUpPath & "\texture\drive\whiteBillboard.jpg"
+        textureNames(16) = startUpPath & "\texture\drive\maskBillboard.jpg"
+        textureNames(17) = startUpPath & "\texture\drive\sand.jpg"
+        textureNames(18) = startUpPath & "\texture\drive\beach.jpg"
+        textureNames(19) = startUpPath & "\texture\drive\circle.jpg"
+        textureNames(20) = startUpPath & "\texture\drive\circle-mask.jpg"
+        textureNames(21) = startUpPath & "\texture\drive\square.jpg"
+        textureNames(22) = startUpPath & "\texture\drive\square-mask.jpg"
+        textureNames(23) = startUpPath & "\texture\drive\triangle.jpg"
+        textureNames(24) = startUpPath & "\texture\drive\triangle-mask.jpg"
+        textureNames(25) = startUpPath & "\texture\drive\street-bumper.jpg"
+        textureNames(26) = startUpPath & "\texture\drive\indicator.jpg"
 
         If opt3 = 3 Then
             ORIGINALSPEED = 6
@@ -1416,7 +1209,6 @@ Public Class clsGameDrive
         End If
 
         MyBase.specifyTextures(textureNames)
-
         MyBase.setPrompt(moduleGameInstructions.returnPrompt(game_screen_type, duration, input_method))
 
         totalTime = duration

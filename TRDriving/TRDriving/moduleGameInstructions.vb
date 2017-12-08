@@ -6,9 +6,11 @@
 
             Case gameScreens.GameDriving
                 If im = gameDevices.trackpad Then
-                    returnValue = "For this game, you will be using the touchpad. " & vbCrLf & _
-                    "Move your finger along the sensor left and right to rotate the car." & vbCrLf & _
-                    "Drive through the colored cones to score points."
+                    returnValue = "For this game, you will be using the touchpad. " & vbCrLf &
+                    "Move your finger along the sensor left and right to rotate the car." & vbCrLf &
+                    "Drive on the right side of the yellow lines to score points." & vbCrLf &
+                    "While playing the game, keep your eyes on the hood ornament in the center." & vbCrLf &
+                    "Press the designated button any time a circle appears."
                 End If
 
 
