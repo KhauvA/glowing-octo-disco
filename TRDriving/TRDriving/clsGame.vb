@@ -31,7 +31,7 @@ Public MustInherit Class clsGame
     Protected currentOption3 As Integer
 
 
-    Protected totalTime As Integer = 20
+    Protected totalTime As Integer = 180
     Protected elapsedTime As Integer = 0
     Protected score As String = 0
     Protected surveyAnswers As String
@@ -519,9 +519,10 @@ Public MustInherit Class clsGame
     Private Sub MyGameWindow_RenderFrame(ByVal sender As Object, ByVal e As OpenTK.FrameEventArgs) Handles Me.RenderFrame
 
         renderLoop()
-        OpenTK.Graphics.GraphicsContext.CurrentContext.VSync = True
-        SwapBuffers()
-
+        If OpenTK.Graphics.GraphicsContext.CurrentContext IsNot Nothing Then
+            OpenTK.Graphics.GraphicsContext.CurrentContext.VSync = True
+            SwapBuffers()
+        End If
     End Sub
 
 

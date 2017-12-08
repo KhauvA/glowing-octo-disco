@@ -8,14 +8,14 @@ Public Class mainForm
     Private Sub Form1_FormClosed(sender As Object, e As System.Windows.Forms.FormClosedEventArgs) Handles Me.FormClosed
         If myGameThread Is Nothing = False AndAlso myGameThread.IsAlive Then
             myGameThread.Abort()
-            If currentPrinter Is Nothing = False Then currentPrinter.Dispose()
+            If currentPrinter IsNot Nothing Then currentPrinter.Dispose()
         End If
     End Sub
 
 
     Private Sub loadDrivingGame()
 
-        Dim MainGameWindow As New clsGameDrive(0, 0, "game_driving", 10, gameDevices.trackpad, 0, 0, 0, gameScreens.GameDriving, 0, 0)
+        Dim MainGameWindow As New clsGameDrive(0, 0, "game_driving", 50, gameDevices.trackpad, 0, 0, 0, gameScreens.GameDriving, 0, 0)
         MainGameWindow.initialize()
         MainGameWindow.Run(30, 60) '30updates per second, drawing 60frames per second
 
